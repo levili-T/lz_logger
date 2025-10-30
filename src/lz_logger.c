@@ -280,15 +280,29 @@ static lz_log_error_t open_existing_file(const char *file_path,
             break;
         }
         
-        // 读取文件尾部已使用大小（跳过魔数，只读取最后4字节）
-        off_t used_size_offset = st.st_size - sizeof(uint32_t);
-        if (lseek(fd, used_size_offset, SEEK_SET) != used_size_offset) {
+        // 读取文件尾部 footer（魔数 + 已使用大小，共8字节）
+        off_t footer_offset = st.st_size - LZ_LOG_FOOTER_SIZE;
+        if (lseek(fd, footer_offset, SEEK_SET) != footer_offset) {
             ret = LZ_LOG_ERROR_FILE_OPEN;
             break;
         }
         
+        uint32_t magic = 0;
         uint32_t used_size = 0;
         
+        // 读取魔数
+        if (read(fd, &magic, sizeof(magic)) != sizeof(magic)) {
+            ret = LZ_LOG_ERROR_FILE_OPEN;
+            break;
+        }
+        
+        // 验证魔数
+        if (magic != LZ_LOG_MAGIC_ENDX) {
+            ret = LZ_LOG_ERROR_FILE_OPEN;
+            break;
+        }
+        
+        // 读取已使用大小
         if (read(fd, &used_size, sizeof(used_size)) != sizeof(used_size)) {
             ret = LZ_LOG_ERROR_FILE_OPEN;
             break;
