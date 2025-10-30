@@ -122,12 +122,15 @@
     // 3秒后在低优先级线程清理7天前的日志
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
                    dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
-        NSLog(@"[LZLogger] Starting cleanup of expired logs (7 days)");
+        [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:0 
+              tag:@"LZLogger" format:@"Starting cleanup of expired logs (7 days)"];
         BOOL success = [self cleanupExpiredLogs:7];
         if (success) {
-            NSLog(@"[LZLogger] Cleanup completed successfully");
+            [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:0 
+                  tag:@"LZLogger" format:@"Cleanup completed successfully"];
         } else {
-            NSLog(@"[LZLogger] Cleanup failed");
+            [self log:LZLogLevelWarn file:__FILE__ function:__FUNCTION__ line:0 
+                  tag:@"LZLogger" format:@"Cleanup failed"];
         }
     });
     
@@ -179,6 +182,7 @@
     
     lz_log_error_t ret = lz_logger_write(self.handle, messageCStr, length);
     if (ret != LZ_LOG_SUCCESS) {
+        // Write 失败用 NSLog，避免递归调用
         NSLog(@"[LZLogger] Write failed: %s", lz_logger_error_string(ret));
     }
 }
@@ -190,6 +194,7 @@
     
     lz_log_error_t ret = lz_logger_flush(self.handle);
     if (ret != LZ_LOG_SUCCESS) {
+        // Flush 失败用 NSLog，因为可能无法写入日志文件
         NSLog(@"[LZLogger] Flush failed: %s", lz_logger_error_string(ret));
     }
 }
@@ -200,14 +205,16 @@
     }
     
     lz_log_error_t ret = lz_logger_close(self.handle);
-    if (ret != LZ_LOG_SUCCESS) {
-        NSLog(@"[LZLogger] Close failed: %s", lz_logger_error_string(ret));
-    }
     
     self.handle = NULL;
     self.isInitialized = NO;
     
-    NSLog(@"[LZLogger] Closed");
+    // Close 后用 NSLog，因为日志系统已关闭
+    if (ret != LZ_LOG_SUCCESS) {
+        NSLog(@"[LZLogger] Close failed: %s", lz_logger_error_string(ret));
+    } else {
+        NSLog(@"[LZLogger] Closed");
+    }
 }
 
 - (nullable NSString *)exportCurrentLog {
@@ -219,10 +226,13 @@
     lz_log_error_t ret = lz_logger_export_current_log(self.handle, exportPath, sizeof(exportPath));
     
     if (ret != LZ_LOG_SUCCESS) {
-        NSLog(@"[LZLogger] Export failed: %s", lz_logger_error_string(ret));
+        [self log:LZLogLevelError file:__FILE__ function:__FUNCTION__ line:__LINE__ 
+              tag:@"LZLogger" format:@"Export failed: %s", lz_logger_error_string(ret)];
         return nil;
     }
     
+    [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:__LINE__ 
+          tag:@"LZLogger" format:@"Export completed: %s", exportPath];
     return [NSString stringWithUTF8String:exportPath];
 }
 
@@ -235,7 +245,10 @@
     lz_log_error_t ret = lz_logger_cleanup_expired_logs(logDirCStr, (int)days);
     
     if (ret != LZ_LOG_SUCCESS) {
-        NSLog(@"[LZLogger] Cleanup failed: %s", lz_logger_error_string(ret));
+        if (self.isInitialized) {
+            [self log:LZLogLevelError file:__FILE__ function:__FUNCTION__ line:__LINE__ 
+                  tag:@"LZLogger" format:@"Cleanup failed: %s", lz_logger_error_string(ret)];
+        }
         return NO;
     }
     
@@ -245,7 +258,10 @@
 #pragma mark - Private Methods
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
-    NSLog(@"[LZLogger] Application will terminate, closing logger");
+    if (self.isInitialized) {
+        [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:0 
+              tag:@"LZLogger" format:@"Application will terminate, closing logger"];
+    }
     [self close];
 }
 
