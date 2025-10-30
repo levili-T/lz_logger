@@ -118,6 +118,19 @@
     self.isInitialized = YES;
     
     NSLog(@"[LZLogger] Initialized successfully: %@", logDir);
+    
+    // 3秒后在低优先级线程清理7天前的日志
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
+                   dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
+        NSLog(@"[LZLogger] Starting cleanup of expired logs (7 days)");
+        BOOL success = [self cleanupExpiredLogs:7];
+        if (success) {
+            NSLog(@"[LZLogger] Cleanup completed successfully");
+        } else {
+            NSLog(@"[LZLogger] Cleanup failed");
+        }
+    });
+    
     return YES;
 }
 
