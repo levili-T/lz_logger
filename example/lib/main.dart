@@ -13,7 +13,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  String _status = 'No log sent yet.';
+  String _status = 'Logger initialized via native code.\nWaiting for user action...';
 
   @override
   void initState() {
@@ -22,26 +22,25 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _sendInitialLog() {
-    lzLog(
-      level: 0,
-      tag: 'example',
-      file: 'main.dart',
-      line: 24,
-      message: 'lz_logger example initialized.',
-    );
-    _status = 'Initial log dispatched.';
+    // 使用 Dart FFI 发送日志 (iOS 和 Android 已在 native 侧初始化)
+    lzLogInfo('DartMain', 'Flutter UI initialized, using Dart FFI');
+    setState(() {
+      _status = 'Initial Dart FFI log sent.\nTap button to send more logs.';
+    });
   }
 
   void _sendLog() {
-    lzLog(
-      level: 1,
-      tag: 'example',
-      file: 'main.dart',
-      line: 38,
-      message: 'Button tapped at ${DateTime.now().toIso8601String()}',
-    );
+    final timestamp = DateTime.now().toIso8601String();
+    
+    // 测试不同级别的日志
+    lzLogVerbose('ButtonTap', 'Verbose log at $timestamp');
+    lzLogDebug('ButtonTap', 'Debug log at $timestamp');
+    lzLogInfo('ButtonTap', 'Info log at $timestamp');
+    lzLogWarn('ButtonTap', 'Warning log at $timestamp');
+    lzLogError('ButtonTap', 'Error log at $timestamp');
+    
     setState(() {
-      _status = 'Last log at ${DateTime.now().toLocal()}';
+      _status = 'Last log burst at ${DateTime.now().toLocal()}\n5 levels logged (VERBOSE to ERROR)';
     });
   }
 
