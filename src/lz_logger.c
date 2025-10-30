@@ -968,19 +968,24 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_cleanup_expired_logs(
 /**
  * 导出当前日志文件
  * @param handle 日志句柄
+ * @param out_export_path 输出导出文件路径
+ * @param path_buffer_size 路径缓冲区大小
  * @return 错误码
  */
 FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
-    lz_logger_handle_t handle) {
+    lz_logger_handle_t handle,
+    char *out_export_path,
+    uint32_t path_buffer_size) {
     
     lz_logger_context_t *ctx = (lz_logger_context_t *)handle;
     lz_log_error_t ret = LZ_LOG_SUCCESS;
     int export_fd = -1;
+    char export_path[1024];
     
     do {
         // 参数验证
-        if (ctx == NULL) {
-            ret = LZ_LOG_ERROR_INVALID_HANDLE;
+        if (ctx == NULL || out_export_path == NULL || path_buffer_size == 0) {
+            ret = LZ_LOG_ERROR_INVALID_PARAM;
             break;
         }
         
@@ -1006,7 +1011,6 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
         }
         
         // 构建导出文件路径
-        char export_path[1024];
         memset(export_path, 0, sizeof(export_path));
         snprintf(export_path, sizeof(export_path) - 1, "%s/export.log", ctx->log_dir);
         
@@ -1047,6 +1051,15 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
             ret = LZ_LOG_ERROR_FILE_WRITE;
             break;
         }
+        
+        // 复制导出文件路径到输出参数
+        size_t path_len = strlen(export_path);
+        if (path_len >= path_buffer_size) {
+            ret = LZ_LOG_ERROR_INVALID_PARAM;
+            break;
+        }
+        strncpy(out_export_path, export_path, path_buffer_size - 1);
+        out_export_path[path_buffer_size - 1] = '\0';
         
     } while (0);
     

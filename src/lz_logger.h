@@ -161,15 +161,20 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_cleanup_expired_logs(
 /**
  * 导出当前日志文件
  * @param handle 日志句柄
+ * @param out_export_path 输出导出文件路径（缓冲区至少1024字节）
+ * @param path_buffer_size 路径缓冲区大小
  * @return 错误码
  * 
  * 将当前正在写入的日志文件导出为 export.log
  * - 如果 export.log 已存在，则先删除
  * - 直接从 mmap 读取数据，无需 flush
  * - 只导出已写入的数据部分（不包含 footer）
+ * - 返回导出文件的完整路径
  */
 FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
-    lz_logger_handle_t handle
+    lz_logger_handle_t handle,
+    char *out_export_path,
+    uint32_t path_buffer_size
 );
 
 #ifdef __cplusplus
