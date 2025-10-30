@@ -56,7 +56,7 @@ extern "C" {
  * @return 日志句柄（0 表示失败）
  */
 JNIEXPORT jlong JNICALL
-Java_io_github_lzlogger_LzLogger_nativeOpen(
+Java_io_levili_lzlogger_LzLogger_nativeOpen(
         JNIEnv* env,
         jobject /* this */,
         jstring jLogDir,
@@ -97,7 +97,7 @@ Java_io_github_lzlogger_LzLogger_nativeOpen(
  * 设置 FFI 全局 handle
  */
 JNIEXPORT void JNICALL
-Java_io_github_lzlogger_LzLogger_nativeSetFfiHandle(
+Java_io_levili_lzlogger_LzLogger_nativeSetFfiHandle(
         JNIEnv* /* env */,
         jobject /* this */,
         jlong jHandle) {
@@ -111,7 +111,7 @@ Java_io_github_lzlogger_LzLogger_nativeSetFfiHandle(
  * 写入日志
  */
 JNIEXPORT void JNICALL
-Java_io_github_lzlogger_LzLogger_nativeLog(
+Java_io_levili_lzlogger_LzLogger_nativeLog(
         JNIEnv* env,
         jobject /* this */,
         jlong jHandle,
@@ -196,7 +196,7 @@ Java_io_github_lzlogger_LzLogger_nativeLog(
  * 同步日志到磁盘
  */
 JNIEXPORT void JNICALL
-Java_io_github_lzlogger_LzLogger_nativeFlush(
+Java_io_levili_lzlogger_LzLogger_nativeFlush(
         JNIEnv* /* env */,
         jobject /* this */,
         jlong jHandle) {
@@ -216,7 +216,7 @@ Java_io_github_lzlogger_LzLogger_nativeFlush(
  * 关闭日志系统
  */
 JNIEXPORT void JNICALL
-Java_io_github_lzlogger_LzLogger_nativeClose(
+Java_io_levili_lzlogger_LzLogger_nativeClose(
         JNIEnv* /* env */,
         jobject /* this */,
         jlong jHandle) {
@@ -238,7 +238,7 @@ Java_io_github_lzlogger_LzLogger_nativeClose(
  * 导出当前日志文件
  */
 JNIEXPORT jstring JNICALL
-Java_io_github_lzlogger_LzLogger_nativeExportCurrentLog(
+Java_io_levili_lzlogger_LzLogger_nativeExportCurrentLog(
         JNIEnv* env,
         jobject /* this */,
         jlong jHandle) {
@@ -263,7 +263,7 @@ Java_io_github_lzlogger_LzLogger_nativeExportCurrentLog(
  * 清理过期日志
  */
 JNIEXPORT jboolean JNICALL
-Java_io_github_lzlogger_LzLogger_nativeCleanupExpiredLogs(
+Java_io_levili_lzlogger_LzLogger_nativeCleanupExpiredLogs(
         JNIEnv* env,
         jobject /* this */,
         jstring jLogDir,
