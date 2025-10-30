@@ -185,6 +185,11 @@
         // Write 失败用 NSLog，避免递归调用
         NSLog(@"[LZLogger] Write failed: %s", lz_logger_error_string(ret));
     }
+    
+#ifdef DEBUG
+    // Debug 模式下同步输出到控制台
+    NSLog(@"[%s] %@", levelStr, fullMessage);
+#endif
 }
 
 - (void)flush {
