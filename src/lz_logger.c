@@ -105,6 +105,9 @@ typedef struct lz_logger_context_t {
 // Global Configuration
 // ============================================================================
 
+/** 当天最大日志文件数量 */
+#define LZ_LOG_MAX_DAILY_FILES 5
+
 /** 全局配置：最大文件大小 */
 static atomic_uint_least32_t g_max_file_size = LZ_LOG_DEFAULT_FILE_SIZE;
 
@@ -155,7 +158,7 @@ static lz_log_error_t check_directory_access(const char *dir_path) {
 }
 
 /**
- * 查找今日最新的日志文件编号
+ * 查找今日最新的日志文件编号（优化版：顺序查找而非遍历目录）
  * @param log_dir 日志目录
  * @param date_prefix 日期前缀（如 "2025-10-30"）
  * @param out_max_num 输出最大编号（如果不存在返回-1）
@@ -164,42 +167,27 @@ static lz_log_error_t check_directory_access(const char *dir_path) {
 static lz_log_error_t find_latest_log_number(const char *log_dir, 
                                                const char *date_prefix,
                                                int *out_max_num) {
-    DIR *dir = NULL;
-    struct dirent *entry;
-    int max_num = -1;
     lz_log_error_t ret = LZ_LOG_SUCCESS;
+    int max_num = -1;
+    char file_path[768];
+    struct stat st;
     
     do {
-        dir = opendir(log_dir);
-        if (dir == NULL) {
-            ret = LZ_LOG_ERROR_DIR_ACCESS;
-            break;
-        }
-        
-        size_t prefix_len = strlen(date_prefix);
-        
-        // 遍历目录查找匹配的日志文件
-        while ((entry = readdir(dir)) != NULL) {
-            // 检查文件名前缀是否匹配
-            if (strncmp(entry->d_name, date_prefix, prefix_len) != 0) {
-                continue;
+        // 从 0 开始顺序查找，找到最后一个存在的文件
+        for (int i = 0; i < LZ_LOG_MAX_DAILY_FILES; i++) {
+            // 构造文件路径
+            int written = snprintf(file_path, sizeof(file_path), 
+                                   "%s%c%s-%d.log", 
+                                   log_dir, PATH_SEPARATOR, date_prefix, i);
+            
+            if (written < 0 || written >= (int)sizeof(file_path)) {
+                ret = LZ_LOG_ERROR_INVALID_PARAM;
+                break;
             }
             
-            // 解析文件编号：yyyy-mm-dd-(num).log
-            const char *num_start = entry->d_name + prefix_len;
-            if (*num_start != '-') {
-                continue;
-            }
-            num_start++;
-            
-            char *end_ptr;
-            long num = strtol(num_start, &end_ptr, 10);
-            
-            // 检查是否以 .log 结尾
-            if (strcmp(end_ptr, ".log") == 0 && num >= 0) {
-                if (num > max_num) {
-                    max_num = (int)num;
-                }
+            // 检查文件是否存在
+            if (stat(file_path, &st) == 0) {
+                max_num = i;  // 更新最大编号
             }
         }
         
@@ -207,9 +195,7 @@ static lz_log_error_t find_latest_log_number(const char *log_dir,
         
     } while (0);
     
-    if (dir != NULL) {
-        closedir(dir);
-    }
+    LZ_DEBUG_LOG("Find latest log number: %d (date=%s)", max_num, date_prefix);
     
     return ret;
 }
@@ -693,6 +679,24 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
         
         // 创建新文件（编号 +1）
         int new_file_num = (max_num >= 0) ? (max_num + 1) : 0;
+        
+        // 如果达到最大文件数量限制，删除0号文件并重用编号
+        if (new_file_num >= LZ_LOG_MAX_DAILY_FILES) {
+            char file_to_delete[768];
+            build_log_file_path(ctx->log_dir, date_str, 0, 
+                                file_to_delete, sizeof(file_to_delete));
+            
+            if (unlink(file_to_delete) == 0) {
+                LZ_DEBUG_LOG("Deleted oldest log file: %s", file_to_delete);
+            } else {
+                LZ_DEBUG_LOG("Failed to delete oldest log file: %s (errno=%d)", 
+                             file_to_delete, errno);
+            }
+            
+            // 重用0号文件编号
+            new_file_num = 0;
+        }
+        
         char new_file_path[768];
         build_log_file_path(ctx->log_dir, date_str, new_file_num, 
                             new_file_path, sizeof(new_file_path));
