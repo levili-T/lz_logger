@@ -78,6 +78,18 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
  */
 - (BOOL)cleanupExpiredLogs:(NSInteger)days;
 
+/**
+ * 获取最后一次操作的内部错误码
+ * @return 内部错误码
+ */
+- (int32_t)lastInnerError;
+
+/**
+ * 获取最后一次操作的系统 errno
+ * @return 系统 errno
+ */
+- (int32_t)lastSysErrno;
+
 @end
 
 // MARK: - 便捷日志宏

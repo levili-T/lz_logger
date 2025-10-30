@@ -9,6 +9,8 @@
 @property (nonatomic, copy) NSString *logDir;
 @property (nonatomic, assign) BOOL isInitialized;
 @property (nonatomic, assign) LZLogLevel currentLevel;
+@property (nonatomic, assign) int32_t lastInnerErrorValue;
+@property (nonatomic, assign) int32_t lastSysErrnoValue;
 
 @end
 
@@ -31,6 +33,8 @@
         _handle = NULL;
         _isInitialized = NO;
         _currentLevel = LZLogLevelInfo;  // 默认 Info 级别
+        _lastInnerErrorValue = 0;
+        _lastSysErrnoValue = 0;
         
         // 监听应用即将终止通知
         [[NSNotificationCenter defaultCenter] addObserver:self
@@ -116,6 +120,10 @@
         int32_t innerError = 0;
         int32_t sysErrno = 0;
         lz_log_error_t ret = lz_logger_open(logDirCStr, encryptKeyCStr, &handle, &innerError, &sysErrno);
+        
+        // 保存错误码
+        self.lastInnerErrorValue = innerError;
+        self.lastSysErrnoValue = sysErrno;
         
         if (ret != LZ_LOG_SUCCESS) {
             NSLog(@"[LZLogger] Failed to open logger: ret=%d, inner=%d, errno=%d (%s), desc=%s", 
@@ -285,6 +293,14 @@
 
 - (void)setLogLevel:(LZLogLevel)level {
     self.currentLevel = level;
+}
+
+- (int32_t)lastInnerError {
+    return self.lastInnerErrorValue;
+}
+
+- (int32_t)lastSysErrno {
+    return self.lastSysErrnoValue;
 }
 
 #pragma mark - Private Methods
