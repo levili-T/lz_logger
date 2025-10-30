@@ -29,18 +29,55 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
-  void _sendLog() {
-    final timestamp = DateTime.now().toIso8601String();
-    
-    // 测试不同级别的日志
-    lzLogVerbose('ButtonTap', 'Verbose log at $timestamp');
-    lzLogDebug('ButtonTap', 'Debug log at $timestamp');
-    lzLogInfo('ButtonTap', 'Info log at $timestamp');
-    lzLogWarn('ButtonTap', 'Warning log at $timestamp');
-    lzLogError('ButtonTap', 'Error log at $timestamp');
+  void _sendLog() async {
+    final startTime = DateTime.now();
     
     setState(() {
-      _status = 'Last log burst at ${DateTime.now().toLocal()}\n5 levels logged (VERBOSE to ERROR)';
+      _status = 'Starting 4 threads writing logs concurrently...\nStarted at ${startTime.toLocal()}';
+    });
+    
+    // 启动 4 个线程并发写日志
+    final futures = List.generate(4, (threadIndex) {
+      return Future(() async {
+        final random = DateTime.now().millisecondsSinceEpoch % 1000;
+        for (int i = 0; i < 10; i++) {
+          final timestamp = DateTime.now().toIso8601String();
+          
+          // 每个线程写不同级别的日志
+          switch (threadIndex) {
+            case 0:
+              lzLogVerbose('Thread-$threadIndex', 'Loop $i at $timestamp');
+              break;
+            case 1:
+              lzLogDebug('Thread-$threadIndex', 'Loop $i at $timestamp');
+              break;
+            case 2:
+              lzLogInfo('Thread-$threadIndex', 'Loop $i at $timestamp');
+              break;
+            case 3:
+              lzLogWarn('Thread-$threadIndex', 'Loop $i at $timestamp');
+              break;
+          }
+          
+          // 随机等待 50ms - 1000ms
+          final delay = 50 + (random + i * 100) % 950;
+          await Future.delayed(Duration(milliseconds: delay));
+        }
+      });
+    });
+    
+    // 等待所有线程完成
+    await Future.wait(futures);
+    
+    final endTime = DateTime.now();
+    final duration = endTime.difference(startTime);
+    
+    setState(() {
+      _status = 'Completed!\n'
+          'Started: ${startTime.toLocal()}\n'
+          'Finished: ${endTime.toLocal()}\n'
+          'Duration: ${duration.inMilliseconds}ms\n'
+          '40 logs written (4 threads × 10 loops)';
     });
   }
 
