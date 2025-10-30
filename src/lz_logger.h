@@ -158,6 +158,20 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_cleanup_expired_logs(
     int days
 );
 
+/**
+ * 导出当前日志文件
+ * @param handle 日志句柄
+ * @return 错误码
+ * 
+ * 将当前正在写入的日志文件导出为 export.log
+ * - 如果 export.log 已存在，则先删除
+ * - 直接从 mmap 读取数据，无需 flush
+ * - 只导出已写入的数据部分（不包含 footer）
+ */
+FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
+    lz_logger_handle_t handle
+);
+
 #ifdef __cplusplus
 }
 #endif

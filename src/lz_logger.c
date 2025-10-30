@@ -964,3 +964,96 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_cleanup_expired_logs(
     
     return ret;
 }
+
+/**
+ * 导出当前日志文件
+ * @param handle 日志句柄
+ * @return 错误码
+ */
+FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
+    lz_logger_handle_t handle) {
+    
+    lz_logger_context_t *ctx = (lz_logger_context_t *)handle;
+    lz_log_error_t ret = LZ_LOG_SUCCESS;
+    int export_fd = -1;
+    
+    do {
+        // 参数验证
+        if (ctx == NULL) {
+            ret = LZ_LOG_ERROR_INVALID_HANDLE;
+            break;
+        }
+        
+        // 检查是否已关闭
+        if (atomic_load(&ctx->is_closed)) {
+            ret = LZ_LOG_ERROR_HANDLE_CLOSED;
+            break;
+        }
+        
+        // 检查 mmap 是否有效
+        if (ctx->mmap_ptr == NULL || ctx->mmap_ptr == MAP_FAILED) {
+            ret = LZ_LOG_ERROR_INVALID_HANDLE;
+            break;
+        }
+        
+        // 读取当前已使用大小（原子操作，无需锁）
+        uint32_t used_size = atomic_load(ctx->cur_offset_ptr);
+        
+        // 如果没有数据，直接返回成功
+        if (used_size == 0) {
+            ret = LZ_LOG_SUCCESS;
+            break;
+        }
+        
+        // 构建导出文件路径
+        char export_path[1024];
+        memset(export_path, 0, sizeof(export_path));
+        snprintf(export_path, sizeof(export_path) - 1, "%s/export.log", ctx->log_dir);
+        
+        // 删除已存在的 export.log（忽略错误）
+        unlink(export_path);
+        
+        // 创建导出文件
+        export_fd = open(export_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (export_fd < 0) {
+            ret = LZ_LOG_ERROR_FILE_CREATE;
+            break;
+        }
+        
+        // 直接从 mmap 写入数据到文件（无需 flush）
+        ssize_t written = 0;
+        ssize_t total_written = 0;
+        const uint8_t *data_ptr = (const uint8_t *)ctx->mmap_ptr;
+        
+        while (total_written < used_size) {
+            written = write(export_fd, data_ptr + total_written, used_size - total_written);
+            if (written <= 0) {
+                if (errno == EINTR) {
+                    // 被信号中断，重试
+                    continue;
+                }
+                ret = LZ_LOG_ERROR_FILE_WRITE;
+                break;
+            }
+            total_written += written;
+        }
+        
+        if (ret != LZ_LOG_SUCCESS) {
+            break;
+        }
+        
+        // 同步到磁盘
+        if (fsync(export_fd) != 0) {
+            ret = LZ_LOG_ERROR_FILE_WRITE;
+            break;
+        }
+        
+    } while (0);
+    
+    // 关闭导出文件
+    if (export_fd >= 0) {
+        close(export_fd);
+    }
+    
+    return ret;
+}
