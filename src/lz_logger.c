@@ -19,7 +19,7 @@
 
 #if LZ_DEBUG_ENABLED
     #define LZ_DEBUG_LOG(fmt, ...) \
-        fprintf(stderr, "[LZ_LOGGER DEBUG] %s:%d %s() - " fmt "\n", \
+        fprintf(stderr, "[LZLogger] %s:%d %s() - " fmt "\n", \
                 __FILE__, __LINE__, __func__, ##__VA_ARGS__)
 #else
     #define LZ_DEBUG_LOG(fmt, ...) ((void)0)
