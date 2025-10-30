@@ -26,13 +26,6 @@
 // Internal Structures
 // ============================================================================
 
-/** 旧 mmap 节点（用于延迟销毁） */
-typedef struct old_mmap_node_t {
-    void *mmap_ptr;                       // 旧的 mmap 指针
-    uint32_t file_size;                   // 文件大小
-    struct old_mmap_node_t *next;         // 链表下一个节点
-} old_mmap_node_t;
-
 /** 日志上下文结构（对外隐藏） */
 typedef struct lz_logger_context_t {
     char log_dir[512];                    // 日志目录
@@ -40,13 +33,15 @@ typedef struct lz_logger_context_t {
     char current_file_path[768];          // 当前日志文件路径
     
     int fd;                               // 文件描述符（仅用于初始化，可以提前关闭）
-    void *mmap_ptr;                       // mmap映射指针
+    void *mmap_ptr;                       // 当前 mmap 映射指针
     uint32_t file_size;                   // 文件总大小
+    
+    void *old_mmap_ptr;                   // 旧 mmap 指针（延迟销毁）
+    uint32_t old_file_size;               // 旧文件大小
     
     atomic_uint_least32_t *cur_offset_ptr; // 当前写入偏移量指针（指向文件尾部-4字节）
     
     pthread_mutex_t switch_mutex;         // 文件切换互斥锁
-    old_mmap_node_t *old_mmap_list;       // 旧 mmap 链表（延迟销毁）
     
     uint32_t max_file_size;               // 最大文件大小
     
@@ -414,7 +409,8 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         ctx->max_file_size = atomic_load(&g_max_file_size);
         ctx->file_size = ctx->max_file_size;
         ctx->fd = -1;
-        ctx->old_mmap_list = NULL;
+        ctx->old_mmap_ptr = NULL;
+        ctx->old_file_size = 0;
         atomic_store(&ctx->is_closed, false);
         
         // 获取当前日期
@@ -565,17 +561,14 @@ static lz_log_error_t encrypt_data(lz_logger_context_t *ctx,
  * @param file_size 文件大小
  */
 static void add_old_mmap(lz_logger_context_t *ctx, void *old_mmap_ptr, uint32_t file_size) {
-    old_mmap_node_t *node = (old_mmap_node_t *)malloc(sizeof(old_mmap_node_t));
-    if (node == NULL) {
-        // 内存不足，直接销毁（有风险，但无其他选择）
-        munmap(old_mmap_ptr, file_size);
-        return;
+    // 清理旧的mmap（如果存在）
+    if (ctx->old_mmap_ptr != NULL && ctx->old_mmap_ptr != MAP_FAILED) {
+        munmap(ctx->old_mmap_ptr, ctx->old_file_size);
     }
     
-    node->mmap_ptr = old_mmap_ptr;
-    node->file_size = file_size;
-    node->next = ctx->old_mmap_list;
-    ctx->old_mmap_list = node;
+    // 保存新的old mmap指针
+    ctx->old_mmap_ptr = old_mmap_ptr;
+    ctx->old_file_size = file_size;
 }
 
 /**
@@ -775,13 +768,9 @@ lz_log_error_t lz_logger_close(lz_logger_handle_t handle) {
             munmap(ctx->mmap_ptr, ctx->file_size);
         }
         
-        // 清理旧 mmap 链表
-        old_mmap_node_t *node = ctx->old_mmap_list;
-        while (node != NULL) {
-            old_mmap_node_t *next = node->next;
-            munmap(node->mmap_ptr, node->file_size);
-            free(node);
-            node = next;
+        // 清理旧 mmap（如果存在）
+        if (ctx->old_mmap_ptr != NULL && ctx->old_mmap_ptr != MAP_FAILED) {
+            munmap(ctx->old_mmap_ptr, ctx->old_file_size);
         }
         
         // 销毁互斥锁
