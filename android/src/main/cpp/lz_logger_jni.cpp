@@ -163,10 +163,10 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
     }
     
     // 构建完整日志消息
-    // 格式: yyyy-MM-dd HH:mm:ss.SSS tid:xx [file:line] [func] [tag] message
+    // 格式: yyyy-MM-dd HH:mm:ss.SSS tid:0x1234 [file:line] [func] [tag] message
     char fullMessage[4096];
     snprintf(fullMessage, sizeof(fullMessage),
-             "%s tid:%d [%s] [%s] [%s] %s\n",
+             "%s tid:0x%x [%s] [%s] [%s] %s\n",
              timestamp.c_str(),
              tid,
              location,
@@ -313,10 +313,10 @@ void lz_logger_ffi(int level, const char* tag, const char* function, const char*
     std::string timestamp = get_timestamp();
     
     // 构建完整日志消息
-    // 格式: yyyy-MM-dd HH:mm:ss.SSS tid:xx [flutter] [func] [tag] message
+    // 格式: yyyy-MM-dd HH:mm:ss.SSS tid:0x1234 [flutter] [func] [tag] message
     char fullMessage[4096];
     snprintf(fullMessage, sizeof(fullMessage),
-             "%s tid:%d [flutter] [%s] [%s] %s\n",
+             "%s tid:0x%x [flutter] [%s] [%s] %s\n",
              timestamp.c_str(),
              tid,
              function != nullptr && strlen(function) > 0 ? function : "unknown",

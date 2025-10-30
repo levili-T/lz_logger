@@ -190,7 +190,7 @@
     pthread_threadid_np(NULL, &tid);
     
     // 构建完整的日志消息
-    // 格式: yyyy-MM-dd HH:mm:ss.SSS tid:xx [file:line] [func] [tag] xxx
+    // 格式: yyyy-MM-dd HH:mm:ss.SSS tid:0x1234 [file:line] [func] [tag] xxx
     NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
     formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss.SSS";
     NSString *timestamp = [formatter stringFromDate:[NSDate date]];
@@ -203,7 +203,7 @@
         ? [NSString stringWithFormat:@"%s:%lu", fileName, (unsigned long)line]
         : [NSString stringWithUTF8String:fileName];
     
-    NSString *fullMessage = [NSString stringWithFormat:@"%@ tid:%llu [%@] [%s] [%@] %@\n",
+    NSString *fullMessage = [NSString stringWithFormat:@"%@ tid:0x%llx [%@] [%s] [%@] %@\n",
                              timestamp, tid, location, 
                              function ?: "unknown", tag ?: @"", message];
     
