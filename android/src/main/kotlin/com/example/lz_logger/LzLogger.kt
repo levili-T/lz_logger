@@ -42,7 +42,6 @@ object LzLogger {
      * @return 是否成功
      */
     @JvmStatic
-    @Synchronized
     fun prepareLog(context: Context, logName: String, encryptKey: String? = null): Boolean {
         if (isInitialized) {
             android.util.Log.i("LzLogger", "Already initialized")
@@ -115,7 +114,6 @@ object LzLogger {
      * @param level 日志级别
      */
     @JvmStatic
-    @Synchronized
     fun setLogLevel(level: Int) {
         currentLevel = level
     }
@@ -168,7 +166,6 @@ object LzLogger {
      * 关闭日志系统
      */
     @JvmStatic
-    @Synchronized
     fun close() {
         if (!isInitialized || handle == 0L) {
             return
