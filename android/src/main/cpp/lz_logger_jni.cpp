@@ -46,6 +46,10 @@ static const char* get_level_string(int level) {
     }
 }
 
+// FFI 函数前置声明
+extern "C" void lz_logger_ffi_set_handle(lz_logger_handle_t handle);
+extern "C" void lz_logger_ffi(int level, const char* tag, const char* function, const char* message);
+
 extern "C" {
 
 /**
