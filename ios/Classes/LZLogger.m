@@ -144,8 +144,13 @@
     const char *levelStr = [self levelString:level];
     const char *fileName = file ? strrchr(file, '/') ? strrchr(file, '/') + 1 : file : "unknown";
     
-    NSString *fullMessage = [NSString stringWithFormat:@"%@ tid:%llu [%s:%lu] [%s] [%@] %@\n",
-                             timestamp, tid, fileName, (unsigned long)line, 
+    // 构建文件位置信息：line 为 0 时只显示文件名
+    NSString *location = line > 0 
+        ? [NSString stringWithFormat:@"%s:%lu", fileName, (unsigned long)line]
+        : [NSString stringWithUTF8String:fileName];
+    
+    NSString *fullMessage = [NSString stringWithFormat:@"%@ tid:%llu [%@] [%s] [%@] %@\n",
+                             timestamp, tid, location, 
                              function ?: "unknown", tag ?: @"", message];
     
     // 写入日志
