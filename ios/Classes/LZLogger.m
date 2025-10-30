@@ -30,7 +30,7 @@
     if (self) {
         _handle = NULL;
         _isInitialized = NO;
-        _currentLevel = LZLogLevelVerbose;  // 默认记录所有级别
+        _currentLevel = LZLogLevelInfo;  // 默认 Info 级别
         
         // 监听应用即将终止通知
         [[NSNotificationCenter defaultCenter] addObserver:self

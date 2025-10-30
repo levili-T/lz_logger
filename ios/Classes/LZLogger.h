@@ -80,4 +80,54 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
 
 @end
 
+// MARK: - 便捷日志宏
+
+#define LZ_LOG_VERBOSE(tag, format, ...) \
+    [[LZLogger sharedInstance] log:LZLogLevelVerbose \
+                              file:__FILE__ \
+                          function:__FUNCTION__ \
+                              line:__LINE__ \
+                               tag:tag \
+                            format:format, ##__VA_ARGS__]
+
+#define LZ_LOG_DEBUG(tag, format, ...) \
+    [[LZLogger sharedInstance] log:LZLogLevelDebug \
+                              file:__FILE__ \
+                          function:__FUNCTION__ \
+                              line:__LINE__ \
+                               tag:tag \
+                            format:format, ##__VA_ARGS__]
+
+#define LZ_LOG_INFO(tag, format, ...) \
+    [[LZLogger sharedInstance] log:LZLogLevelInfo \
+                              file:__FILE__ \
+                          function:__FUNCTION__ \
+                              line:__LINE__ \
+                               tag:tag \
+                            format:format, ##__VA_ARGS__]
+
+#define LZ_LOG_WARN(tag, format, ...) \
+    [[LZLogger sharedInstance] log:LZLogLevelWarn \
+                              file:__FILE__ \
+                          function:__FUNCTION__ \
+                              line:__LINE__ \
+                               tag:tag \
+                            format:format, ##__VA_ARGS__]
+
+#define LZ_LOG_ERROR(tag, format, ...) \
+    [[LZLogger sharedInstance] log:LZLogLevelError \
+                              file:__FILE__ \
+                          function:__FUNCTION__ \
+                              line:__LINE__ \
+                               tag:tag \
+                            format:format, ##__VA_ARGS__]
+
+#define LZ_LOG_FATAL(tag, format, ...) \
+    [[LZLogger sharedInstance] log:LZLogLevelFatal \
+                              file:__FILE__ \
+                          function:__FUNCTION__ \
+                              line:__LINE__ \
+                               tag:tag \
+                            format:format, ##__VA_ARGS__]
+
 NS_ASSUME_NONNULL_END
