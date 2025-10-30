@@ -303,3 +303,20 @@
 }
 
 @end
+
+
+__attribute__((visibility("default"), used))
+void lz_logger_ffi(int loglevel, const char* tag, const char* message);
+
+void lz_logger_ffi(int loglevel, const char* tag, const char* message)
+{
+    NSString *nsTag = tag ? ([NSString stringWithUTF8String:tag] ?: @"") : @"";
+    NSString *nsMessage = message ? ([NSString stringWithUTF8String:message] ?: @"") : @"";
+    
+    [[LZLogger sharedInstance] log:(LZLogLevel)loglevel
+                              file:"flutter"
+                          function:""
+                              line:0
+                               tag:nsTag
+                            format:@"%@", nsMessage];
+}
