@@ -94,6 +94,20 @@ Java_com_example_lz_1logger_LzLogger_nativeOpen(
 }
 
 /**
+ * 设置 FFI 全局 handle
+ */
+JNIEXPORT void JNICALL
+Java_com_example_lz_1logger_LzLogger_nativeSetFfiHandle(
+        JNIEnv* /* env */,
+        jobject /* this */,
+        jlong jHandle) {
+    
+    lz_logger_handle_t handle = reinterpret_cast<lz_logger_handle_t>(jHandle);
+    lz_logger_ffi_set_handle(handle);
+    LOGI("FFI handle set: %p", handle);
+}
+
+/**
  * 写入日志
  */
 JNIEXPORT void JNICALL
@@ -270,3 +284,54 @@ Java_com_example_lz_1logger_LzLogger_nativeCleanupExpiredLogs(
 }
 
 } // extern "C"
+
+// ============================================================================
+// FFI function for Dart integration (matching iOS implementation)
+// ============================================================================
+
+// Global handle cache (must be set before using lz_logger_ffi)
+static lz_logger_handle_t g_ffi_handle = nullptr;
+
+extern "C" __attribute__((visibility("default"), used))
+void lz_logger_ffi_set_handle(lz_logger_handle_t handle) {
+    g_ffi_handle = handle;
+}
+
+extern "C" __attribute__((visibility("default"), used))
+void lz_logger_ffi(int level, const char* tag, const char* function, const char* message) {
+    if (g_ffi_handle == nullptr) {
+        LOGE("lz_logger_ffi: handle not set, call lz_logger_ffi_set_handle first");
+        return;
+    }
+    
+    // 获取线程 ID
+    pid_t tid = get_thread_id();
+    
+    // 获取时间戳
+    std::string timestamp = get_timestamp();
+    
+    // 构建完整日志消息
+    // 格式: yyyy-MM-dd HH:mm:ss.SSS tid:xx [flutter] [func] [tag] message
+    char fullMessage[4096];
+    snprintf(fullMessage, sizeof(fullMessage),
+             "%s tid:%d [flutter] [%s] [%s] %s\n",
+             timestamp.c_str(),
+             tid,
+             function != nullptr && strlen(function) > 0 ? function : "unknown",
+             tag != nullptr ? tag : "",
+             message != nullptr ? message : "");
+    
+    // 写入日志
+    uint32_t len = static_cast<uint32_t>(strlen(fullMessage));
+    lz_log_error_t ret = lz_logger_write(g_ffi_handle, fullMessage, len);
+    
+    if (ret != LZ_LOG_SUCCESS) {
+        LOGE("FFI write failed: %s", lz_logger_error_string(ret));
+    }
+    
+#ifdef DEBUG
+    // Debug 模式下同步输出到 logcat
+    const char* levelStr = get_level_string(level);
+    __android_log_print(ANDROID_LOG_INFO, levelStr, "%s", fullMessage);
+#endif
+}

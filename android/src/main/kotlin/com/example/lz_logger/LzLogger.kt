@@ -91,6 +91,9 @@ object LzLogger {
         logDir = logDirPath
         isInitialized = true
 
+        // 设置 FFI 全局 handle (供 Dart FFI 使用)
+        nativeSetFfiHandle(handle)
+
         val elapsedMs = (System.nanoTime() - startTime) / 1_000_000.0
         log(INFO, "LzLogger", "Initialized successfully in %.2fms, path: %s".format(elapsedMs, logDirPath))
 
@@ -230,6 +233,7 @@ object LzLogger {
 
     // Native 方法声明
     private external fun nativeOpen(logDir: String, encryptKey: String?, outErrors: IntArray): Long
+    private external fun nativeSetFfiHandle(handle: Long)
     private external fun nativeLog(handle: Long, level: Int, tag: String, function: String, file: String, line: Int, message: String)
     private external fun nativeFlush(handle: Long)
     private external fun nativeClose(handle: Long)
