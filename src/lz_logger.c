@@ -420,10 +420,12 @@ lz_log_error_t lz_logger_set_max_file_size(uint32_t size) {
 lz_log_error_t lz_logger_open(const char *log_dir,
                                 const char *encrypt_key,
                                 lz_logger_handle_t *out_handle,
-                                int32_t *out_error) {
+                                int32_t *out_inner_error,
+                                int32_t *out_sys_errno) {
     lz_logger_context_t *ctx = NULL;
     lz_log_error_t ret = LZ_LOG_SUCCESS;
-    int sys_errno = 0;
+    int32_t inner_error = 0;
+    int32_t sys_errno = 0;
     
     do {
         // 参数校验
@@ -578,9 +580,12 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         }
     }
     
-    // 输出系统错误码
-    if (out_error != NULL) {
-        *out_error = sys_errno;
+    // 输出错误码
+    if (out_inner_error != NULL) {
+        *out_inner_error = inner_error;
+    }
+    if (out_sys_errno != NULL) {
+        *out_sys_errno = sys_errno;
     }
     
     return ret;

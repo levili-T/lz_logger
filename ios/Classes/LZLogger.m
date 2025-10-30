@@ -113,12 +113,13 @@
         const char *logDirCStr = [logDir UTF8String];
         const char *encryptKeyCStr = encryptKey ? [encryptKey UTF8String] : NULL;
         
-        int32_t sysError = 0;
-        lz_log_error_t ret = lz_logger_open(logDirCStr, encryptKeyCStr, &handle, &sysError);
+        int32_t innerError = 0;
+        int32_t sysErrno = 0;
+        lz_log_error_t ret = lz_logger_open(logDirCStr, encryptKeyCStr, &handle, &innerError, &sysErrno);
         
         if (ret != LZ_LOG_SUCCESS) {
-            NSLog(@"[LZLogger] Failed to open logger: %d (errno=%d, %s)", 
-                  ret, sysError, lz_logger_error_string(ret));
+            NSLog(@"[LZLogger] Failed to open logger: ret=%d, inner=%d, errno=%d (%s), desc=%s", 
+                  ret, innerError, sysErrno, strerror(sysErrno), lz_logger_error_string(ret));
             break;
         }
         

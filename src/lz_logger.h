@@ -92,7 +92,8 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_set_max_file_size(uint32_t size);
  * @param log_dir 日志目录路径（必须已存在）
  * @param encrypt_key 加密密钥（可为NULL表示不加密）
  * @param out_handle 输出句柄指针
- * @param out_error 输出详细错误码（可为NULL）
+ * @param out_inner_error 输出内部错误码（可为NULL）
+ * @param out_sys_errno 输出系统errno（可为NULL），用于调试系统API失败原因
  * @return 错误码
  * 
  * 文件命名规则：yyyy-mm-dd-(num).log
@@ -107,7 +108,8 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_open(
     const char *log_dir,
     const char *encrypt_key,
     lz_logger_handle_t *out_handle,
-    int32_t *out_error
+    int32_t *out_inner_error,
+    int32_t *out_sys_errno
 );
 
 /**
