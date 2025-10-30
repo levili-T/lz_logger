@@ -2,6 +2,8 @@
 #include <string>
 #include <cstring>
 #include <ctime>
+#include <sys/time.h>
+#include <unistd.h>
 #include <android/log.h>
 #include "lz_logger.h"
 
