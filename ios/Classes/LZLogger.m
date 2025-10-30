@@ -1,6 +1,7 @@
 #import "LZLogger.h"
 #import "lz_logger.h"
 #import <pthread.h>
+#import <UIKit/UIKit.h>
 
 @interface LZLogger ()
 
@@ -28,6 +29,12 @@
     if (self) {
         _handle = NULL;
         _isInitialized = NO;
+        
+        // 监听应用即将终止通知
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(applicationWillTerminate:)
+                                                     name:UIApplicationWillTerminateNotification
+                                                   object:nil];
     }
     return self;
 }
@@ -224,6 +231,11 @@
 
 #pragma mark - Private Methods
 
+- (void)applicationWillTerminate:(NSNotification *)notification {
+    NSLog(@"[LZLogger] Application will terminate, closing logger");
+    [self close];
+}
+
 - (const char *)levelString:(LZLogLevel)level {
     switch (level) {
         case LZLogLevelVerbose: return "VERBOSE";
@@ -237,6 +249,8 @@
 }
 
 - (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    
     if (self.handle != NULL) {
         lz_logger_close(self.handle);
         self.handle = NULL;
