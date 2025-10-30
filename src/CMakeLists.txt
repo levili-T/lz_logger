@@ -1,0 +1,26 @@
+# The Flutter tooling requires that developers have CMake 3.10 or later
+# installed. You should not increase this version, as doing so will cause
+# the plugin to fail to compile for some customers of the plugin.
+cmake_minimum_required(VERSION 3.10)
+
+project(lz_logger_library VERSION 0.0.1 LANGUAGES C)
+
+add_library(lz_logger SHARED
+  "lz_logger.c"
+)
+
+if (ANDROID)
+  target_sources(lz_logger PRIVATE "lz_logger_android.c")
+endif()
+
+set_target_properties(lz_logger PROPERTIES
+  PUBLIC_HEADER lz_logger.h
+  OUTPUT_NAME "lz_logger"
+)
+
+target_compile_definitions(lz_logger PUBLIC DART_SHARED_LIB)
+
+if (ANDROID)
+  # Support Android 15 16k page size
+  target_link_options(lz_logger PRIVATE "-Wl,-z,max-page-size=16384")
+endif()
