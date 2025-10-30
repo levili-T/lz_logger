@@ -27,11 +27,11 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
 
 /**
  * 准备日志系统
- * @param logDir 日志目录路径
+ * @param logName 日志文件夹名称（将在 Cache 目录下创建）
  * @param encryptKey 加密密钥（可为 nil 表示不加密）
  * @return 是否成功
  */
-- (BOOL)prepareLog:(NSString *)logDir encryptKey:(nullable NSString *)encryptKey;
+- (BOOL)prepareLog:(NSString *)logName encryptKey:(nullable NSString *)encryptKey;
 
 /**
  * 写入日志

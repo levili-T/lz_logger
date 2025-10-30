@@ -6,7 +6,6 @@
 @property (nonatomic, assign) lz_logger_handle_t handle;
 @property (nonatomic, copy) NSString *logDir;
 @property (nonatomic, assign) BOOL isInitialized;
-@property (nonatomic, strong) dispatch_queue_t logQueue;
 
 @end
 
@@ -28,24 +27,33 @@
     if (self) {
         _handle = NULL;
         _isInitialized = NO;
-        // 创建串行队列用于日志操作（可选，如果需要确保顺序）
-        _logQueue = dispatch_queue_create("com.lz_logger.queue", DISPATCH_QUEUE_SERIAL);
     }
     return self;
 }
 
 #pragma mark - Public Methods
 
-- (BOOL)prepareLog:(NSString *)logDir encryptKey:(nullable NSString *)encryptKey {
+- (BOOL)prepareLog:(NSString *)logName encryptKey:(nullable NSString *)encryptKey {
     if (self.isInitialized) {
         NSLog(@"[LZLogger] Already initialized");
         return YES;
     }
     
-    if (logDir.length == 0) {
-        NSLog(@"[LZLogger] Invalid log directory");
+    if (logName.length == 0) {
+        NSLog(@"[LZLogger] Invalid log name");
         return NO;
     }
+    
+    // 获取 Cache 目录
+    NSArray *cachePaths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+    if (cachePaths.count == 0) {
+        NSLog(@"[LZLogger] Failed to get cache directory");
+        return NO;
+    }
+    NSString *cacheDir = cachePaths.firstObject;
+    
+    // 创建日志目录路径：Cache/logName
+    NSString *logDir = [cacheDir stringByAppendingPathComponent:logName];
     
     // 创建日志目录（如果不存在）
     NSFileManager *fileManager = [NSFileManager defaultManager];
@@ -59,6 +67,28 @@
             NSLog(@"[LZLogger] Failed to create log directory: %@", error);
             return NO;
         }
+    }
+    
+    // 设置目录保护属性为无保护（允许后台访问）
+    NSError *protectionError = nil;
+    NSDictionary *attributes = @{NSFileProtectionKey: NSFileProtectionNone};
+    BOOL setProtection = [fileManager setAttributes:attributes
+                                        ofItemAtPath:logDir
+                                               error:&protectionError];
+    if (!setProtection) {
+        NSLog(@"[LZLogger] Warning: Failed to set file protection: %@", protectionError);
+        // 不返回 NO，这不是致命错误
+    }
+    
+    // 排除目录备份到 iCloud
+    NSURL *logDirURL = [NSURL fileURLWithPath:logDir];
+    NSError *excludeError = nil;
+    BOOL excludeBackup = [logDirURL setResourceValue:@YES
+                                               forKey:NSURLIsExcludedFromBackupKey
+                                                error:&excludeError];
+    if (!excludeBackup) {
+        NSLog(@"[LZLogger] Warning: Failed to exclude from backup: %@", excludeError);
+        // 不返回 NO，这不是致命错误
     }
     
     // 调用 C 函数初始化
