@@ -1,4 +1,4 @@
-package com.example.lz_logger
+package io.github.lzlogger
 
 import android.content.Context
 import androidx.lifecycle.DefaultLifecycleObserver
