@@ -36,6 +36,9 @@ typedef enum {
     LZ_LOG_ERROR_FILE_SIZE_EXCEED = -11,  // 文件大小超限
     LZ_LOG_ERROR_ENCRYPTION = -12,        // 加密错误
     LZ_LOG_ERROR_DIR_ACCESS = -13,        // 目录访问失败
+    LZ_LOG_ERROR_HANDLE_CLOSED = -14,     // 句柄已关闭
+    LZ_LOG_ERROR_FILE_SWITCH = -15,       // 文件切换失败
+    LZ_LOG_ERROR_MUTEX_LOCK = -16,        // 互斥锁失败
     LZ_LOG_ERROR_SYSTEM = -100,           // 系统错误（携带errno）
 } lz_log_error_t;
 
@@ -110,20 +113,14 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_open(
 /**
  * 写入日志
  * @param handle 日志句柄
- * @param level 日志级别
- * @param tag 标签
- * @param file_name 文件名（可为NULL）
- * @param line 行号
  * @param message 日志内容
+ * @param len 日志长度
  * @return 错误码
  */
 FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_write(
     lz_logger_handle_t handle,
-    lz_log_level_t level,
-    const char *tag,
-    const char *file_name,
-    int line,
-    const char *message
+    const char *message,
+    uint32_t len
 );
 
 /**
