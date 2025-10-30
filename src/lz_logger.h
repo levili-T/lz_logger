@@ -158,14 +158,6 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_cleanup_expired_logs(
     int days
 );
 
-// ============================================================================
-// Legacy API (deprecated, for backward compatibility)
-// ============================================================================
-
-FFI_PLUGIN_EXPORT void lz_logger(int loglevel, const char *tag,
-                                  const char *file_name, int line,
-                                  const char *message);
-
 #ifdef __cplusplus
 }
 #endif
