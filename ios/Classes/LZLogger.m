@@ -44,99 +44,114 @@
 #pragma mark - Public Methods
 
 - (BOOL)prepareLog:(NSString *)logName encryptKey:(nullable NSString *)encryptKey {
-    if (self.isInitialized) {
-        NSLog(@"[LZLogger] Already initialized");
-        return YES;
-    }
-    
-    if (logName.length == 0) {
-        NSLog(@"[LZLogger] Invalid log name");
-        return NO;
-    }
-    
-    // 获取 Cache 目录
-    NSArray *cachePaths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
-    if (cachePaths.count == 0) {
-        NSLog(@"[LZLogger] Failed to get cache directory");
-        return NO;
-    }
-    NSString *cacheDir = cachePaths.firstObject;
-    
-    // 创建日志目录路径：Cache/logName
-    NSString *logDir = [cacheDir stringByAppendingPathComponent:logName];
-    
-    // 创建日志目录（如果不存在）
-    NSFileManager *fileManager = [NSFileManager defaultManager];
-    if (![fileManager fileExistsAtPath:logDir]) {
-        NSError *error = nil;
-        BOOL success = [fileManager createDirectoryAtPath:logDir
-                                withIntermediateDirectories:YES
-                                                 attributes:nil
-                                                      error:&error];
-        if (!success) {
-            NSLog(@"[LZLogger] Failed to create log directory: %@", error);
-            return NO;
-        }
-    }
-    
-    // 设置目录保护属性为无保护（允许后台访问）
-    NSError *protectionError = nil;
-    NSDictionary *attributes = @{NSFileProtectionKey: NSFileProtectionNone};
-    BOOL setProtection = [fileManager setAttributes:attributes
-                                        ofItemAtPath:logDir
-                                               error:&protectionError];
-    if (!setProtection) {
-        NSLog(@"[LZLogger] Warning: Failed to set file protection: %@", protectionError);
-        // 不返回 NO，这不是致命错误
-    }
-    
-    // 排除目录备份到 iCloud
-    NSURL *logDirURL = [NSURL fileURLWithPath:logDir];
-    NSError *excludeError = nil;
-    BOOL excludeBackup = [logDirURL setResourceValue:@YES
-                                               forKey:NSURLIsExcludedFromBackupKey
-                                                error:&excludeError];
-    if (!excludeBackup) {
-        NSLog(@"[LZLogger] Warning: Failed to exclude from backup: %@", excludeError);
-        // 不返回 NO，这不是致命错误
-    }
-    
-    // 调用 C 函数初始化
-    const char *logDirCStr = [logDir UTF8String];
-    const char *encryptKeyCStr = encryptKey ? [encryptKey UTF8String] : NULL;
-    
+    BOOL success = NO;
     lz_logger_handle_t handle = NULL;
-    int32_t sysError = 0;
-    lz_log_error_t ret = lz_logger_open(logDirCStr, encryptKeyCStr, &handle, &sysError);
     
-    if (ret != LZ_LOG_SUCCESS) {
-        NSLog(@"[LZLogger] Failed to open logger: %d (errno=%d, %s)", 
-              ret, sysError, lz_logger_error_string(ret));
-        return NO;
-    }
-    
-    self.handle = handle;
-    self.logDir = logDir;
-    self.isInitialized = YES;
-    
-    NSLog(@"[LZLogger] Initialized successfully: %@", logDir);
-    
-    // 3秒后在低优先级线程清理7天前的日志
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
-                   dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
-        [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:0 
-              tag:@"LZLogger" format:@"Starting cleanup of expired logs (7 days)"];
-        BOOL success = [self cleanupExpiredLogs:7];
-        if (success) {
-            [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:0 
-                  tag:@"LZLogger" format:@"Cleanup completed successfully"];
-        } else {
-            [self log:LZLogLevelWarn file:__FILE__ function:__FUNCTION__ line:0 
-                  tag:@"LZLogger" format:@"Cleanup failed"];
+    do {
+        // 调用 C 函数初始化
+        CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
+        // 检查是否已初始化
+        if (self.isInitialized) {
+            NSLog(@"[LZLogger] Already initialized");
+            success = YES;
+            break;
         }
-    });
+        
+        // 检查参数
+        if (logName.length == 0) {
+            NSLog(@"[LZLogger] Invalid log name");
+            break;
+        }
+        
+        // 获取 Cache 目录
+        NSArray *cachePaths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+        if (cachePaths.count == 0) {
+            NSLog(@"[LZLogger] Failed to get cache directory");
+            break;
+        }
+        NSString *cacheDir = cachePaths.firstObject;
+        
+        // 创建日志目录路径：Cache/logName
+        NSString *logDir = [cacheDir stringByAppendingPathComponent:logName];
+        
+        // 创建日志目录（如果不存在）
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        if (![fileManager fileExistsAtPath:logDir]) {
+            NSError *error = nil;
+            BOOL createSuccess = [fileManager createDirectoryAtPath:logDir
+                                        withIntermediateDirectories:YES
+                                                         attributes:nil
+                                                              error:&error];
+            if (!createSuccess) {
+                NSLog(@"[LZLogger] Failed to create log directory: %@", error);
+                break;
+            }
+        }
+        
+        // 设置目录保护属性为无保护（允许后台访问）
+        NSError *protectionError = nil;
+        NSDictionary *attributes = @{NSFileProtectionKey: NSFileProtectionNone};
+        BOOL setProtection = [fileManager setAttributes:attributes
+                                            ofItemAtPath:logDir
+                                                   error:&protectionError];
+        if (!setProtection) {
+            NSLog(@"[LZLogger] Warning: Failed to set file protection: %@", protectionError);
+            // 不中断，这不是致命错误
+        }
+        
+        // 排除目录备份到 iCloud
+        NSURL *logDirURL = [NSURL fileURLWithPath:logDir];
+        NSError *excludeError = nil;
+        BOOL excludeBackup = [logDirURL setResourceValue:@YES
+                                                   forKey:NSURLIsExcludedFromBackupKey
+                                                    error:&excludeError];
+        if (!excludeBackup) {
+            NSLog(@"[LZLogger] Warning: Failed to exclude from backup: %@", excludeError);
+            // 不中断，这不是致命错误
+        }
+        
+        const char *logDirCStr = [logDir UTF8String];
+        const char *encryptKeyCStr = encryptKey ? [encryptKey UTF8String] : NULL;
+        
+        int32_t sysError = 0;
+        lz_log_error_t ret = lz_logger_open(logDirCStr, encryptKeyCStr, &handle, &sysError);
+        
+        if (ret != LZ_LOG_SUCCESS) {
+            NSLog(@"[LZLogger] Failed to open logger: %d (errno=%d, %s)", 
+                  ret, sysError, lz_logger_error_string(ret));
+            break;
+        }
+        
+        self.handle = handle;
+        self.logDir = logDir;
+        self.isInitialized = YES;
+        
+        CFAbsoluteTime endTime = CFAbsoluteTimeGetCurrent();
+        double elapsedMs = (endTime - startTime) * 1000.0;
+        
+        [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:__LINE__ 
+              tag:@"LZLogger" format:@"Initialized successfully in %.2fms, path: %@", elapsedMs, logDir];
+        
+        // 3秒后在低优先级线程清理7天前的日志
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
+                       dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
+            [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:0 
+                  tag:@"LZLogger" format:@"Starting cleanup of expired logs (7 days)"];
+            BOOL cleanupSuccess = [self cleanupExpiredLogs:7];
+            if (cleanupSuccess) {
+                [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:0 
+                      tag:@"LZLogger" format:@"Cleanup completed successfully"];
+            } else {
+                [self log:LZLogLevelWarn file:__FILE__ function:__FUNCTION__ line:0 
+                      tag:@"LZLogger" format:@"Cleanup failed"];
+            }
+        });
+        
+        success = YES;
+        
+    } while (0);
     
-    return YES;
+    return success;
 }
 
 - (void)log:(LZLogLevel)level
