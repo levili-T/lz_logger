@@ -1,6 +1,9 @@
 package com.example.lz_logger
 
 import android.content.Context
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import java.io.File
 
 /**
@@ -14,7 +17,7 @@ import java.io.File
  * - ERROR = 4
  * - FATAL = 5
  */
-object LzLogger {
+object LzLogger : DefaultLifecycleObserver {
     // 日志级别常量
     const val VERBOSE = 0
     const val DEBUG = 1
@@ -93,6 +96,13 @@ object LzLogger {
 
         // 设置 FFI 全局 handle (供 Dart FFI 使用)
         nativeSetFfiHandle(handle)
+
+        // 注册进程生命周期监听，自动关闭日志
+        try {
+            ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+        } catch (e: Exception) {
+            android.util.Log.w("LzLogger", "Failed to register lifecycle observer: ${e.message}")
+        }
 
         val elapsedMs = (System.nanoTime() - startTime) / 1_000_000.0
         log(INFO, "LzLogger", "Initialized successfully in %.2fms, path: %s".format(elapsedMs, logDirPath))
@@ -230,6 +240,18 @@ object LzLogger {
      */
     @JvmStatic
     fun getLastSysErrno(): Int = lastSysErrno
+
+    // ========================================================================
+    // 生命周期监听 - 进程退出时自动关闭日志
+    // ========================================================================
+
+    override fun onStop(owner: LifecycleOwner) {
+        super.onStop(owner)
+        if (isInitialized) {
+            log(INFO, "LzLogger", "Process stopping, closing logger")
+            close()
+        }
+    }
 
     // Native 方法声明
     private external fun nativeOpen(logDir: String, encryptKey: String?, outErrors: IntArray): Long

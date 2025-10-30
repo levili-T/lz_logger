@@ -61,3 +61,8 @@ android {
         minSdk = 24
     }
 }
+
+dependencies {
+    // Lifecycle support for automatic cleanup
+    implementation 'androidx.lifecycle:lifecycle-process:2.8.7'
+}
