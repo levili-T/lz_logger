@@ -797,3 +797,170 @@ lz_log_error_t lz_logger_close(lz_logger_handle_t handle) {
     
     return LZ_LOG_SUCCESS;
 }
+
+/**
+ * 解析日志文件名中的日期
+ * @param filename 文件名（例如：2025-10-30-0.log）
+ * @param out_year 输出年份
+ * @param out_month 输出月份
+ * @param out_day 输出日期
+ * @return 是否解析成功
+ */
+static bool parse_log_filename_date(const char *filename, 
+                                      int *out_year, 
+                                      int *out_month, 
+                                      int *out_day) {
+    // 验证文件名格式：yyyy-mm-dd-*.log
+    if (filename == NULL || strlen(filename) < 14) {
+        return false;
+    }
+    
+    // 检查是否以 .log 结尾
+    const char *ext = strrchr(filename, '.');
+    if (ext == NULL || strcmp(ext, ".log") != 0) {
+        return false;
+    }
+    
+    // 解析日期部分：yyyy-mm-dd
+    int year = 0, month = 0, day = 0;
+    if (sscanf(filename, "%4d-%2d-%2d-", &year, &month, &day) != 3) {
+        return false;
+    }
+    
+    // 验证日期合法性
+    if (year < 2000 || year > 2100 || 
+        month < 1 || month > 12 || 
+        day < 1 || day > 31) {
+        return false;
+    }
+    
+    *out_year = year;
+    *out_month = month;
+    *out_day = day;
+    
+    return true;
+}
+
+/**
+ * 计算两个日期之间的天数差
+ * @param year1, month1, day1 日期1
+ * @param year2, month2, day2 日期2
+ * @return 日期1 - 日期2 的天数差（可能为负数）
+ */
+static int calculate_days_diff(int year1, int month1, int day1,
+                                 int year2, int month2, int day2) {
+    // 使用 mktime 计算时间戳差异
+    struct tm tm1 = {0};
+    struct tm tm2 = {0};
+    
+    tm1.tm_year = year1 - 1900;
+    tm1.tm_mon = month1 - 1;
+    tm1.tm_mday = day1;
+    tm1.tm_hour = 12;  // 使用中午12点避免夏令时问题
+    
+    tm2.tm_year = year2 - 1900;
+    tm2.tm_mon = month2 - 1;
+    tm2.tm_mday = day2;
+    tm2.tm_hour = 12;
+    
+    time_t time1 = mktime(&tm1);
+    time_t time2 = mktime(&tm2);
+    
+    if (time1 == -1 || time2 == -1) {
+        return 0;
+    }
+    
+    // 计算天数差（86400秒 = 1天）
+    double diff_seconds = difftime(time1, time2);
+    return (int)(diff_seconds / 86400.0);
+}
+
+/**
+ * 清理过期日志文件
+ * @param log_dir 日志目录路径
+ * @param days 保留天数（删除此天数之前的所有日志文件）
+ * @return 错误码
+ */
+FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_cleanup_expired_logs(
+    const char *log_dir,
+    int days) {
+    
+    lz_log_error_t ret = LZ_LOG_SUCCESS;
+    DIR *dir = NULL;
+    
+    do {
+        // 参数验证
+        if (log_dir == NULL || days < 0) {
+            ret = LZ_LOG_ERROR_INVALID_PARAM;
+            break;
+        }
+        
+        // 检查目录访问权限
+        ret = check_directory_access(log_dir);
+        if (ret != LZ_LOG_SUCCESS) {
+            break;
+        }
+        
+        // 获取当前日期
+        time_t now = time(NULL);
+        struct tm *tm_now = localtime(&now);
+        if (tm_now == NULL) {
+            ret = LZ_LOG_ERROR_SYSTEM;
+            break;
+        }
+        
+        int current_year = tm_now->tm_year + 1900;
+        int current_month = tm_now->tm_mon + 1;
+        int current_day = tm_now->tm_mday;
+        
+        // 打开目录
+        dir = opendir(log_dir);
+        if (dir == NULL) {
+            ret = LZ_LOG_ERROR_DIR_ACCESS;
+            break;
+        }
+        
+        // 遍历目录
+        struct dirent *entry = NULL;
+        while ((entry = readdir(dir)) != NULL) {
+            // 跳过 . 和 ..
+            if (strcmp(entry->d_name, ".") == 0 || 
+                strcmp(entry->d_name, "..") == 0) {
+                continue;
+            }
+            
+            // 解析文件名中的日期
+            int file_year = 0, file_month = 0, file_day = 0;
+            if (!parse_log_filename_date(entry->d_name, 
+                                          &file_year, 
+                                          &file_month, 
+                                          &file_day)) {
+                // 跳过非日志文件
+                continue;
+            }
+            
+            // 计算文件日期与当前日期的天数差
+            int days_diff = calculate_days_diff(current_year, current_month, current_day,
+                                                  file_year, file_month, file_day);
+            
+            // 如果文件日期早于保留天数，则删除
+            if (days_diff >= days) {
+                char file_path[1024];
+                memset(file_path, 0, sizeof(file_path));
+                snprintf(file_path, sizeof(file_path) - 1, "%s/%s", 
+                         log_dir, entry->d_name);
+                
+                // 删除文件（忽略错误，继续处理其他文件）
+                unlink(file_path);
+            }
+        }
+        
+    } while (0);
+    
+    // 关闭目录
+    if (dir != NULL) {
+        closedir(dir);
+    }
+    
+    return ret;
+}

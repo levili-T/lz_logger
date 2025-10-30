@@ -144,6 +144,20 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_close(lz_logger_handle_t handle);
  */
 FFI_PLUGIN_EXPORT const char* lz_logger_error_string(lz_log_error_t error);
 
+/**
+ * 清理过期日志文件
+ * @param log_dir 日志目录路径
+ * @param days 保留天数（删除此天数之前的所有日志文件）
+ * @return 错误码
+ * 
+ * 示例：days=7 表示保留最近7天的日志，删除7天前的所有日志文件
+ * 根据文件名格式 yyyy-mm-dd-(num).log 解析日期并判断是否过期
+ */
+FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_cleanup_expired_logs(
+    const char *log_dir,
+    int days
+);
+
 // ============================================================================
 // Legacy API (deprecated, for backward compatibility)
 // ============================================================================
