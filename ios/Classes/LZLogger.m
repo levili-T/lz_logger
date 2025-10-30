@@ -1,5 +1,6 @@
 #import "LZLogger.h"
 #import "lz_logger.h"
+#import <pthread.h>
 
 @interface LZLogger ()
 
@@ -130,8 +131,12 @@
     NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
     
+    // 获取当前线程 ID
+    uint64_t tid;
+    pthread_threadid_np(NULL, &tid);
+    
     // 构建完整的日志消息
-    // 格式: [时间] [级别] [tag] [文件:行号] [函数] 消息
+    // 格式: yyyy-MM-dd HH:mm:ss.SSS tid:xx [file:line] [func] [tag] xxx
     NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
     formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss.SSS";
     NSString *timestamp = [formatter stringFromDate:[NSDate date]];
@@ -139,9 +144,9 @@
     const char *levelStr = [self levelString:level];
     const char *fileName = file ? strrchr(file, '/') ? strrchr(file, '/') + 1 : file : "unknown";
     
-    NSString *fullMessage = [NSString stringWithFormat:@"[%@] [%s] [%@] [%s:%lu] [%s] %@\n",
-                             timestamp, levelStr, tag ?: @"", fileName, (unsigned long)line, 
-                             function ?: "", message];
+    NSString *fullMessage = [NSString stringWithFormat:@"%@ tid:%llu [%s:%lu] [%s] [%@] %@\n",
+                             timestamp, tid, fileName, (unsigned long)line, 
+                             function ?: "unknown", tag ?: @"", message];
     
     // 写入日志
     const char *messageCStr = [fullMessage UTF8String];
