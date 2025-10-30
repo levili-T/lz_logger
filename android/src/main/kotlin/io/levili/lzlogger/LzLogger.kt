@@ -40,7 +40,8 @@ object LzLogger : DefaultLifecycleObserver {
     /**
      * 准备日志系统
      * @param context Android Context
-     * @param logName 日志文件夹名称（将在 Cache 目录下创建）
+     * @param logName 日志文件夹名称（将在外部存储 logs 目录下创建）
+     *                路径: /sdcard/Android/data/包名/files/logs/logName/
      * @param encryptKey 加密密钥（可为 null 表示不加密）
      * @return 是否成功
      */
@@ -58,15 +59,24 @@ object LzLogger : DefaultLifecycleObserver {
 
         val startTime = System.nanoTime()
 
-        // 获取 Cache 目录
-        val cacheDir = context.cacheDir
-        if (cacheDir == null || !cacheDir.exists()) {
-            android.util.Log.e("LzLogger", "Failed to get cache directory")
+        // 获取外部存储目录（方便调试导出）
+        // 优先使用 /sdcard/Android/data/包名/files/logs/
+        // 如果外部存储不可用，则降级到内部 cacheDir
+        val baseDir = context.getExternalFilesDir(null) ?: context.filesDir
+        
+        if (!baseDir.exists()) {
+            android.util.Log.e("LzLogger", "Failed to get storage directory")
             return false
         }
 
-        // 创建日志目录：Cache/logName
-        val logDirFile = File(cacheDir, logName)
+        // 创建日志目录：/sdcard/Android/data/包名/files/logs/logName
+        val logsDir = File(baseDir, "logs")
+        if (!logsDir.exists() && !logsDir.mkdirs()) {
+            android.util.Log.e("LzLogger", "Failed to create logs directory: ${logsDir.absolutePath}")
+            return false
+        }
+        
+        val logDirFile = File(logsDir, logName)
         if (!logDirFile.exists()) {
             if (!logDirFile.mkdirs()) {
                 android.util.Log.e("LzLogger", "Failed to create log directory: ${logDirFile.absolutePath}")
