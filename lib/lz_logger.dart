@@ -26,11 +26,13 @@ final ffi.DynamicLibrary _dylib = _load();
 typedef _LzLoggerFfiNative = ffi.Void Function(
   ffi.Int32 level,
   ffi.Pointer<ffi.Char> tag,
+  ffi.Pointer<ffi.Char> function,
   ffi.Pointer<ffi.Char> message,
 );
 typedef _LzLoggerFfiDart = void Function(
   int level,
   ffi.Pointer<ffi.Char> tag,
+  ffi.Pointer<ffi.Char> function,
   ffi.Pointer<ffi.Char> message,
 );
 
@@ -52,41 +54,44 @@ class LzLogLevel {
 void lzLog({
   required int level,
   required String tag,
+  String function = '',
   required String message,
 }) {
   final ffi.Pointer<ffi.Char> tagPtr = tag.toNativeUtf8().cast();
+  final ffi.Pointer<ffi.Char> functionPtr = function.toNativeUtf8().cast();
   final ffi.Pointer<ffi.Char> messagePtr = message.toNativeUtf8().cast();
 
   try {
-    _lzLoggerFfi(level, tagPtr, messagePtr);
+    _lzLoggerFfi(level, tagPtr, functionPtr, messagePtr);
   } finally {
     calloc.free(tagPtr);
+    calloc.free(functionPtr);
     calloc.free(messagePtr);
   }
 }
 
 /// Convenience functions for different log levels
 
-void lzLogVerbose(String tag, String message) {
-  lzLog(level: LzLogLevel.verbose, tag: tag, message: message);
+void lzLogVerbose(String tag, String message, {String function = ''}) {
+  lzLog(level: LzLogLevel.verbose, tag: tag, function: function, message: message);
 }
 
-void lzLogDebug(String tag, String message) {
-  lzLog(level: LzLogLevel.debug, tag: tag, message: message);
+void lzLogDebug(String tag, String message, {String function = ''}) {
+  lzLog(level: LzLogLevel.debug, tag: tag, function: function, message: message);
 }
 
-void lzLogInfo(String tag, String message) {
-  lzLog(level: LzLogLevel.info, tag: tag, message: message);
+void lzLogInfo(String tag, String message, {String function = ''}) {
+  lzLog(level: LzLogLevel.info, tag: tag, function: function, message: message);
 }
 
-void lzLogWarn(String tag, String message) {
-  lzLog(level: LzLogLevel.warn, tag: tag, message: message);
+void lzLogWarn(String tag, String message, {String function = ''}) {
+  lzLog(level: LzLogLevel.warn, tag: tag, function: function, message: message);
 }
 
-void lzLogError(String tag, String message) {
-  lzLog(level: LzLogLevel.error, tag: tag, message: message);
+void lzLogError(String tag, String message, {String function = ''}) {
+  lzLog(level: LzLogLevel.error, tag: tag, function: function, message: message);
 }
 
-void lzLogFatal(String tag, String message) {
-  lzLog(level: LzLogLevel.fatal, tag: tag, message: message);
+void lzLogFatal(String tag, String message, {String function = ''}) {
+  lzLog(level: LzLogLevel.fatal, tag: tag, function: function, message: message);
 }

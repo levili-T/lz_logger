@@ -321,16 +321,17 @@
 
 
 __attribute__((visibility("default"), used))
-void lz_logger_ffi(int loglevel, const char* tag, const char* message);
+void lz_logger_ffi(int loglevel, const char* tag, const char* function, const char* message);
 
-void lz_logger_ffi(int loglevel, const char* tag, const char* message)
+void lz_logger_ffi(int loglevel, const char* tag, const char* function, const char* message)
 {
     NSString *nsTag = tag ? ([NSString stringWithUTF8String:tag] ?: @"") : @"";
     NSString *nsMessage = message ? ([NSString stringWithUTF8String:message] ?: @"") : @"";
+    const char *functionStr = function ? function : "";
     
     [[LZLogger sharedInstance] log:(LZLogLevel)loglevel
                               file:"flutter"
-                          function:""
+                          function:functionStr
                               line:0
                                tag:nsTag
                             format:@"%@", nsMessage];
