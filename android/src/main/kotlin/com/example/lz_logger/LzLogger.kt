@@ -42,73 +42,72 @@ object LzLogger {
      * @return 是否成功
      */
     @JvmStatic
+    @Synchronized
     fun prepareLog(context: Context, logName: String, encryptKey: String? = null): Boolean {
-        synchronized(this) {
-            if (isInitialized) {
-                android.util.Log.i("LzLogger", "Already initialized")
-                return true
-            }
-
-            if (logName.isEmpty()) {
-                android.util.Log.e("LzLogger", "Invalid log name")
-                return false
-            }
-
-            val startTime = System.nanoTime()
-
-            // 获取 Cache 目录
-            val cacheDir = context.cacheDir
-            if (cacheDir == null || !cacheDir.exists()) {
-                android.util.Log.e("LzLogger", "Failed to get cache directory")
-                return false
-            }
-
-            // 创建日志目录：Cache/logName
-            val logDirFile = File(cacheDir, logName)
-            if (!logDirFile.exists()) {
-                if (!logDirFile.mkdirs()) {
-                    android.util.Log.e("LzLogger", "Failed to create log directory: ${logDirFile.absolutePath}")
-                    return false
-                }
-            }
-
-            val logDirPath = logDirFile.absolutePath
-
-            // 调用 Native 初始化
-            val errors = IntArray(2)  // [innerError, sysErrno]
-            handle = nativeOpen(logDirPath, encryptKey, errors)
-
-            lastInnerError = errors[0]
-            lastSysErrno = errors[1]
-
-            if (handle == 0L) {
-                android.util.Log.e(
-                    "LzLogger",
-                    "Failed to open logger: inner=$lastInnerError, errno=$lastSysErrno"
-                )
-                return false
-            }
-
-            logDir = logDirPath
-            isInitialized = true
-
-            val elapsedMs = (System.nanoTime() - startTime) / 1_000_000.0
-            log(INFO, "LzLogger", "Initialized successfully in %.2fms, path: %s".format(elapsedMs, logDirPath))
-
-            // 3秒后在后台线程清理7天前的日志
-            Thread {
-                Thread.sleep(3000)
-                log(INFO, "LzLogger", "Starting cleanup of expired logs (7 days)")
-                val success = cleanupExpiredLogs(7)
-                if (success) {
-                    log(INFO, "LzLogger", "Cleanup completed successfully")
-                } else {
-                    log(WARN, "LzLogger", "Cleanup failed")
-                }
-            }.start()
-
+        if (isInitialized) {
+            android.util.Log.i("LzLogger", "Already initialized")
             return true
         }
+
+        if (logName.isEmpty()) {
+            android.util.Log.e("LzLogger", "Invalid log name")
+            return false
+        }
+
+        val startTime = System.nanoTime()
+
+        // 获取 Cache 目录
+        val cacheDir = context.cacheDir
+        if (cacheDir == null || !cacheDir.exists()) {
+            android.util.Log.e("LzLogger", "Failed to get cache directory")
+            return false
+        }
+
+        // 创建日志目录：Cache/logName
+        val logDirFile = File(cacheDir, logName)
+        if (!logDirFile.exists()) {
+            if (!logDirFile.mkdirs()) {
+                android.util.Log.e("LzLogger", "Failed to create log directory: ${logDirFile.absolutePath}")
+                return false
+            }
+        }
+
+        val logDirPath = logDirFile.absolutePath
+
+        // 调用 Native 初始化
+        val errors = IntArray(2)  // [innerError, sysErrno]
+        handle = nativeOpen(logDirPath, encryptKey, errors)
+
+        lastInnerError = errors[0]
+        lastSysErrno = errors[1]
+
+        if (handle == 0L) {
+            android.util.Log.e(
+                "LzLogger",
+                "Failed to open logger: inner=$lastInnerError, errno=$lastSysErrno"
+            )
+            return false
+        }
+
+        logDir = logDirPath
+        isInitialized = true
+
+        val elapsedMs = (System.nanoTime() - startTime) / 1_000_000.0
+        log(INFO, "LzLogger", "Initialized successfully in %.2fms, path: %s".format(elapsedMs, logDirPath))
+
+        // 3秒后在后台线程清理7天前的日志
+        Thread {
+            Thread.sleep(3000)
+            log(INFO, "LzLogger", "Starting cleanup of expired logs (7 days)")
+            val success = cleanupExpiredLogs(7)
+            if (success) {
+                log(INFO, "LzLogger", "Cleanup completed successfully")
+            } else {
+                log(WARN, "LzLogger", "Cleanup failed")
+            }
+        }.start()
+
+        return true
     }
 
     /**
@@ -116,10 +115,9 @@ object LzLogger {
      * @param level 日志级别
      */
     @JvmStatic
+    @Synchronized
     fun setLogLevel(level: Int) {
-        synchronized(this) {
-            currentLevel = level
-        }
+        currentLevel = level
     }
 
     /**
@@ -141,18 +139,17 @@ object LzLogger {
         file: String = "",
         line: Int = 0
     ) {
-        synchronized(this) {
-            if (!isInitialized || handle == 0L) {
-                return
-            }
-
-            // 级别过滤
-            if (level < currentLevel) {
-                return
-            }
-
-            nativeLog(handle, level, tag, function, file, line, message)
+        // 无需加锁 - 底层 C 代码使用 CAS 原子操作保证线程安全
+        if (!isInitialized || handle == 0L) {
+            return
         }
+
+        // 级别过滤
+        if (level < currentLevel) {
+            return
+        }
+
+        nativeLog(handle, level, tag, function, file, line, message)
     }
 
     /**
@@ -160,29 +157,27 @@ object LzLogger {
      */
     @JvmStatic
     fun flush() {
-        synchronized(this) {
-            if (!isInitialized || handle == 0L) {
-                return
-            }
-            nativeFlush(handle)
+        // 无需加锁 - msync 本身是线程安全的系统调用
+        if (!isInitialized || handle == 0L) {
+            return
         }
+        nativeFlush(handle)
     }
 
     /**
      * 关闭日志系统
      */
     @JvmStatic
+    @Synchronized
     fun close() {
-        synchronized(this) {
-            if (!isInitialized || handle == 0L) {
-                return
-            }
-
-            nativeClose(handle)
-            handle = 0
-            isInitialized = false
-            android.util.Log.i("LzLogger", "Closed")
+        if (!isInitialized || handle == 0L) {
+            return
         }
+
+        nativeClose(handle)
+        handle = 0
+        isInitialized = false
+        android.util.Log.i("LzLogger", "Closed")
     }
 
     /**
@@ -191,19 +186,18 @@ object LzLogger {
      */
     @JvmStatic
     fun exportCurrentLog(): String? {
-        synchronized(this) {
-            if (!isInitialized || handle == 0L) {
-                return null
-            }
-
-            val exportPath = nativeExportCurrentLog(handle)
-            if (exportPath != null) {
-                log(INFO, "LzLogger", "Export completed: $exportPath")
-            } else {
-                log(ERROR, "LzLogger", "Export failed")
-            }
-            return exportPath
+        // 无需加锁 - 文件拷贝是独立操作,不影响并发写入
+        if (!isInitialized || handle == 0L) {
+            return null
         }
+
+        val exportPath = nativeExportCurrentLog(handle)
+        if (exportPath != null) {
+            log(INFO, "LzLogger", "Export completed: $exportPath")
+        } else {
+            log(ERROR, "LzLogger", "Export failed")
+        }
+        return exportPath
     }
 
     /**
@@ -213,17 +207,16 @@ object LzLogger {
      */
     @JvmStatic
     fun cleanupExpiredLogs(days: Int): Boolean {
-        synchronized(this) {
-            if (logDir.isNullOrEmpty() || days < 0) {
-                return false
-            }
-
-            val success = nativeCleanupExpiredLogs(logDir!!, days)
-            if (!success && isInitialized) {
-                log(ERROR, "LzLogger", "Cleanup failed")
-            }
-            return success
+        // 无需加锁 - 删除过期文件不影响当前文件的并发写入
+        if (logDir.isNullOrEmpty() || days < 0) {
+            return false
         }
+
+        val success = nativeCleanupExpiredLogs(logDir!!, days)
+        if (!success && isInitialized) {
+            log(ERROR, "LzLogger", "Cleanup failed")
+        }
+        return success
     }
 
     /**
