@@ -8,6 +8,7 @@
 @property (nonatomic, assign) lz_logger_handle_t handle;
 @property (nonatomic, copy) NSString *logDir;
 @property (nonatomic, assign) BOOL isInitialized;
+@property (nonatomic, assign) LZLogLevel currentLevel;
 
 @end
 
@@ -29,6 +30,7 @@
     if (self) {
         _handle = NULL;
         _isInitialized = NO;
+        _currentLevel = LZLogLevelVerbose;  // 默认记录所有级别
         
         // 监听应用即将终止通知
         [[NSNotificationCenter defaultCenter] addObserver:self
@@ -148,6 +150,11 @@
         return;
     }
     
+    // 级别过滤：只记录大于等于当前级别的日志
+    if (level < self.currentLevel) {
+        return;
+    }
+    
     // 处理可变参数
     va_list args;
     va_start(args, format);
@@ -258,6 +265,10 @@
     }
     
     return YES;
+}
+
+- (void)setLogLevel:(LZLogLevel)level {
+    self.currentLevel = level;
 }
 
 #pragma mark - Private Methods

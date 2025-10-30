@@ -34,6 +34,12 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
 - (BOOL)prepareLog:(NSString *)logName encryptKey:(nullable NSString *)encryptKey;
 
 /**
+ * 设置日志级别（只记录大于等于此级别的日志）
+ * @param level 日志级别
+ */
+- (void)setLogLevel:(LZLogLevel)level;
+
+/**
  * 写入日志
  * @param level 日志级别
  * @param file 文件名
