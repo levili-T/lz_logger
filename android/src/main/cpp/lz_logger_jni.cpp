@@ -33,7 +33,8 @@ static std::string get_timestamp() {
     return std::string(timestamp);
 }
 
-// 日志级别字符串
+#ifdef DEBUG
+// 日志级别字符串 (仅 Debug 模式使用)
 static const char* get_level_string(int level) {
     switch (level) {
         case 0: return "VERBOSE";
@@ -45,6 +46,7 @@ static const char* get_level_string(int level) {
         default: return "UNKNOWN";
     }
 }
+#endif
 
 // FFI 函数前置声明
 extern "C" void lz_logger_ffi_set_handle(lz_logger_handle_t handle);
@@ -127,6 +129,7 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
         jstring jFile,
         jint line,
         jstring jMessage) {
+    (void)level; // Level is for future use (filtering, logcat output, etc.)
     
     lz_logger_handle_t handle = reinterpret_cast<lz_logger_handle_t>(jHandle);
     if (handle == nullptr) {
