@@ -313,6 +313,7 @@ static lz_log_error_t open_existing_file(const char *file_path,
                                            int *out_fd,
                                            uint32_t *out_used_size,
                                            lz_crypto_context_t *crypto_ctx) {
+    (void)crypto_ctx; // May be used in future for validation
     int fd = -1;
     lz_log_error_t ret = LZ_LOG_SUCCESS;
     
@@ -1252,7 +1253,7 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
         ssize_t total_written = 0;
         const uint8_t *data_ptr = (const uint8_t *)ctx->mmap_ptr;
         
-        while (total_written < used_size) {
+        while (total_written < (ssize_t)used_size) {
             written = write(export_fd, data_ptr + total_written, used_size - total_written);
             if (written <= 0) {
                 if (errno == EINTR) {

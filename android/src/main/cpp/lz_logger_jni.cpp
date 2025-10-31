@@ -144,9 +144,6 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
     // 获取时间戳
     std::string timestamp = get_timestamp();
     
-    // 获取日志级别字符串
-    const char* levelStr = get_level_string(level);
-    
     // 提取文件名（去掉路径）
     const char* fileName = file;
     if (file != nullptr && strlen(file) > 0) {
@@ -305,6 +302,8 @@ void lz_logger_ffi_set_handle(lz_logger_handle_t handle) {
 
 extern "C" __attribute__((visibility("default"), used))
 void lz_logger_ffi(int level, const char* tag, const char* function, const char* message) {
+    (void)level; // Level is for future use (filtering, logcat output, etc.)
+    
     if (g_ffi_handle == nullptr) {
         LOGE("lz_logger_ffi: handle not set, call lz_logger_ffi_set_handle first");
         return;

@@ -267,6 +267,7 @@ int lz_crypto_process(
     // 我们使用文件偏移量作为 BlockNumber
     uint64_t block_number = offset / LZ_CRYPTO_BLOCK_SIZE;
     uint32_t block_offset = offset % LZ_CRYPTO_BLOCK_SIZE;
+    (void)block_offset; // Used in iOS/Android specific code
 
     // 构造 IV (Counter 初始值)
     uint8_t iv[LZ_CRYPTO_BLOCK_SIZE];

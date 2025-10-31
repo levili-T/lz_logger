@@ -152,14 +152,14 @@ public class LzLoggerPerformanceTest {
         
         // 预热（500次）
         for (int i = 0; i < 500; i++) {
-            LzLogger.i("PERF", message);
+            LzLogger.log(LzLogger.INFO, "PERF", message);
         }
         LzLogger.flush();
         
         // 性能测量
         long startTime = System.nanoTime();
         for (int i = 0; i < iterations; i++) {
-            LzLogger.i("PERF", message);
+            LzLogger.log(LzLogger.INFO, "PERF", message);
         }
         long endTime = System.nanoTime();
         
