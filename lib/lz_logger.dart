@@ -9,7 +9,8 @@ const String _libName = 'lz_logger';
 /// Lazily loads the platform dependent dynamic library for the logger core.
 ffi.DynamicLibrary _load() {
   if (Platform.isIOS || Platform.isMacOS) {
-    return ffi.DynamicLibrary.open('$_libName.framework/$_libName');
+    // iOS uses static framework, symbols are in the executable
+    return ffi.DynamicLibrary.process();
   }
   if (Platform.isAndroid || Platform.isLinux) {
     return ffi.DynamicLibrary.open('lib$_libName.so');
