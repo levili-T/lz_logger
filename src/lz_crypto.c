@@ -8,13 +8,72 @@
 #include <CommonCrypto/CommonKeyDerivation.h>
 #include <Security/SecRandom.h>
 #elif defined(__ANDROID__)
-// Android - 使用 OpenSSL (NDK 自带)
-#include <openssl/evp.h>
-#include <openssl/rand.h>
+// Android - 通过 JNI 调用 Java Crypto API
+#include <jni.h>
 #else
 // 其他平台 - 使用 OpenSSL
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+#endif
+
+// Android JNI 全局引用
+#if defined(__ANDROID__)
+static JavaVM *g_jvm = NULL;
+static jclass g_crypto_helper_class = NULL;
+static jmethodID g_derive_key_method = NULL;
+static jmethodID g_generate_salt_method = NULL;
+static jmethodID g_process_aes_ctr_method = NULL;
+
+// JNI 初始化函数 (从 lz_logger_jni.cpp 调用)
+int lz_crypto_jni_init(JNIEnv *env, JavaVM *jvm) {
+    g_jvm = jvm;
+    
+    // 查找 CryptoHelper 类
+    jclass local_class = (*env)->FindClass(env, "io/levili/lzlogger/CryptoHelper");
+    if (!local_class) {
+        return -1;
+    }
+    g_crypto_helper_class = (jclass)(*env)->NewGlobalRef(env, local_class);
+    (*env)->DeleteLocalRef(env, local_class);
+    
+    if (!g_crypto_helper_class) {
+        return -1;
+    }
+    
+    // 获取方法 ID
+    g_derive_key_method = (*env)->GetStaticMethodID(env, g_crypto_helper_class, 
+        "deriveKey", "(Ljava/lang/String;[B)[B");
+    g_generate_salt_method = (*env)->GetStaticMethodID(env, g_crypto_helper_class, 
+        "generateSalt", "()[B");
+    g_process_aes_ctr_method = (*env)->GetStaticMethodID(env, g_crypto_helper_class, 
+        "processAesCtr", "([B[BJ)[B");
+    
+    if (!g_derive_key_method || !g_generate_salt_method || !g_process_aes_ctr_method) {
+        return -1;
+    }
+    
+    return 0;
+}
+
+// 获取 JNIEnv (线程安全)
+static JNIEnv* get_jni_env() {
+    if (!g_jvm) {
+        return NULL;
+    }
+    
+    JNIEnv *env = NULL;
+    int status = (*g_jvm)->GetEnv(g_jvm, (void**)&env, JNI_VERSION_1_6);
+    
+    if (status == JNI_EDETACHED) {
+        // 当前线程未附加到 JVM, 需要附加
+        status = (*g_jvm)->AttachCurrentThread(g_jvm, &env, NULL);
+        if (status != JNI_OK) {
+            return NULL;
+        }
+    }
+    
+    return env;
+}
 #endif
 
 // ============================================================================
@@ -43,8 +102,52 @@ int lz_crypto_derive_key(
     );
     return (result == kCCSuccess) ? 0 : -1;
 
+#elif defined(__ANDROID__)
+    // Android: 通过 JNI 调用 Java
+    JNIEnv *env = get_jni_env();
+    if (!env || !g_crypto_helper_class || !g_derive_key_method) {
+        return -1;
+    }
+    
+    // 创建 Java String
+    jstring j_password = (*env)->NewStringUTF(env, password);
+    if (!j_password) {
+        return -1;
+    }
+    
+    // 创建 Java byte[] (salt)
+    jbyteArray j_salt = (*env)->NewByteArray(env, LZ_CRYPTO_SALT_SIZE);
+    if (!j_salt) {
+        (*env)->DeleteLocalRef(env, j_password);
+        return -1;
+    }
+    (*env)->SetByteArrayRegion(env, j_salt, 0, LZ_CRYPTO_SALT_SIZE, (const jbyte*)salt);
+    
+    // 调用 Java 方法
+    jbyteArray j_key = (jbyteArray)(*env)->CallStaticObjectMethod(env, g_crypto_helper_class, 
+        g_derive_key_method, j_password, j_salt);
+    
+    (*env)->DeleteLocalRef(env, j_password);
+    (*env)->DeleteLocalRef(env, j_salt);
+    
+    if (!j_key) {
+        return -1;
+    }
+    
+    // 获取结果
+    jsize key_len = (*env)->GetArrayLength(env, j_key);
+    if (key_len != LZ_CRYPTO_KEY_SIZE) {
+        (*env)->DeleteLocalRef(env, j_key);
+        return -1;
+    }
+    
+    (*env)->GetByteArrayRegion(env, j_key, 0, LZ_CRYPTO_KEY_SIZE, (jbyte*)out_key);
+    (*env)->DeleteLocalRef(env, j_key);
+    
+    return 0;
+
 #else
-    // Android/其他平台: 使用 OpenSSL
+    // 其他平台: 使用 OpenSSL
     int result = PKCS5_PBKDF2_HMAC(
         password, (int)password_len,
         salt, LZ_CRYPTO_SALT_SIZE,
@@ -71,8 +174,35 @@ int lz_crypto_generate_salt(uint8_t *salt) {
     int result = SecRandomCopyBytes(kSecRandomDefault, LZ_CRYPTO_SALT_SIZE, salt);
     return (result == errSecSuccess) ? 0 : -1;
 
+#elif defined(__ANDROID__)
+    // Android: 通过 JNI 调用 Java
+    JNIEnv *env = get_jni_env();
+    if (!env || !g_crypto_helper_class || !g_generate_salt_method) {
+        return -1;
+    }
+    
+    // 调用 Java 方法
+    jbyteArray j_salt = (jbyteArray)(*env)->CallStaticObjectMethod(env, g_crypto_helper_class, 
+        g_generate_salt_method);
+    
+    if (!j_salt) {
+        return -1;
+    }
+    
+    // 获取结果
+    jsize salt_len = (*env)->GetArrayLength(env, j_salt);
+    if (salt_len != LZ_CRYPTO_SALT_SIZE) {
+        (*env)->DeleteLocalRef(env, j_salt);
+        return -1;
+    }
+    
+    (*env)->GetByteArrayRegion(env, j_salt, 0, LZ_CRYPTO_SALT_SIZE, (jbyte*)salt);
+    (*env)->DeleteLocalRef(env, j_salt);
+    
+    return 0;
+
 #else
-    // Android/其他平台: 使用 OpenSSL
+    // 其他平台: 使用 OpenSSL
     int result = RAND_bytes(salt, LZ_CRYPTO_SALT_SIZE);
     return (result == 1) ? 0 : -1;
 #endif
@@ -193,8 +323,53 @@ int lz_crypto_process(
     CCCryptorRelease(cryptor);
     return (status == kCCSuccess && dataOutMoved == length) ? 0 : -1;
 
+#elif defined(__ANDROID__)
+    // Android: 通过 JNI 调用 Java
+    JNIEnv *env = get_jni_env();
+    if (!env || !g_crypto_helper_class || !g_process_aes_ctr_method) {
+        return -1;
+    }
+    
+    // 创建 Java byte[] (key)
+    jbyteArray j_key = (*env)->NewByteArray(env, LZ_CRYPTO_KEY_SIZE);
+    if (!j_key) {
+        return -1;
+    }
+    (*env)->SetByteArrayRegion(env, j_key, 0, LZ_CRYPTO_KEY_SIZE, (const jbyte*)ctx->key);
+    
+    // 创建 Java byte[] (data)
+    jbyteArray j_data = (*env)->NewByteArray(env, (jsize)length);
+    if (!j_data) {
+        (*env)->DeleteLocalRef(env, j_key);
+        return -1;
+    }
+    (*env)->SetByteArrayRegion(env, j_data, 0, (jsize)length, (const jbyte*)input);
+    
+    // 调用 Java 方法 (注意: offset 需要考虑块内偏移)
+    jbyteArray j_result = (jbyteArray)(*env)->CallStaticObjectMethod(env, g_crypto_helper_class, 
+        g_process_aes_ctr_method, j_key, j_data, (jlong)offset);
+    
+    (*env)->DeleteLocalRef(env, j_key);
+    (*env)->DeleteLocalRef(env, j_data);
+    
+    if (!j_result) {
+        return -1;
+    }
+    
+    // 获取结果
+    jsize result_len = (*env)->GetArrayLength(env, j_result);
+    if (result_len != (jsize)length) {
+        (*env)->DeleteLocalRef(env, j_result);
+        return -1;
+    }
+    
+    (*env)->GetByteArrayRegion(env, j_result, 0, (jsize)length, (jbyte*)output);
+    (*env)->DeleteLocalRef(env, j_result);
+    
+    return 0;
+
 #else
-    // Android/其他平台: 使用 OpenSSL
+    // 其他平台: 使用 OpenSSL
     EVP_CIPHER_CTX *ctx_cipher = EVP_CIPHER_CTX_new();
     if (!ctx_cipher) {
         return -1;

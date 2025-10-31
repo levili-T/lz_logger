@@ -341,3 +341,25 @@ void lz_logger_ffi(int level, const char* tag, const char* function, const char*
     __android_log_print(ANDROID_LOG_INFO, levelStr, "%s", fullMessage);
 #endif
 }
+
+// ============================================================================
+// JNI_OnLoad - 初始化加密模块
+// ============================================================================
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /* reserved */) {
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
+        LOGE("JNI_OnLoad: GetEnv failed");
+        return JNI_ERR;
+    }
+    
+    // 初始化加密模块 (Android 使用 Java Crypto API)
+    extern int lz_crypto_jni_init(JNIEnv *env, JavaVM *jvm);
+    if (lz_crypto_jni_init(env, vm) != 0) {
+        LOGE("JNI_OnLoad: lz_crypto_jni_init failed");
+        return JNI_ERR;
+    }
+    
+    LOGI("JNI_OnLoad: lz_logger loaded successfully");
+    return JNI_VERSION_1_6;
+}

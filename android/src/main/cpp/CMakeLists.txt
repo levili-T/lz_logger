@@ -27,10 +27,10 @@ target_include_directories(
     ${PROJECT_ROOT}/src
 )
 
-# 链接 Android 日志库和 OpenSSL
+# 链接 Android 日志库
+# 注意：不需要 OpenSSL，改用 Java Crypto API
 find_library(log-lib log)
-find_library(crypto-lib crypto)
-target_link_libraries(lz_logger ${log-lib} ${crypto-lib})
+target_link_libraries(lz_logger ${log-lib})
 
 # 编译选项
 target_compile_options(lz_logger PRIVATE -Wall -Wextra)

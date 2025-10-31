@@ -92,6 +92,12 @@ int lz_crypto_generate_salt(uint8_t *salt);
  */
 void lz_crypto_cleanup(lz_crypto_context_t *ctx);
 
+#if defined(__ANDROID__)
+// Android JNI 初始化函数 (从 lz_logger_jni.cpp 的 JNI_OnLoad 调用)
+#include <jni.h>
+int lz_crypto_jni_init(JNIEnv *env, JavaVM *jvm);
+#endif
+
 #ifdef __cplusplus
 }
 #endif
