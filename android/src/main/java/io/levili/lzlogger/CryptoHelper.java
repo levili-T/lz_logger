@@ -67,17 +67,26 @@ public class CryptoHelper {
      */
     public static byte[] processAesCtr(byte[] key, byte[] data, long offset) {
         try {
-            // 计算 counter: offset / 16
-            long counter = offset / 16;
+            // 计算块号和块内偏移
+            long blockNumber = offset / 16;
+            int blockOffset = (int)(offset % 16);
             
-            // 构建 IV: 前 8 字节为 0，后 8 字节为 counter (big-endian)
+            // 构建 IV: 前 8 字节为 0，后 8 字节为 blockNumber (big-endian)
             byte[] iv = new byte[16];
-            ByteBuffer.wrap(iv, 8, 8).putLong(counter);
+            ByteBuffer.wrap(iv, 8, 8).putLong(blockNumber);
             
             SecretKey secretKey = new SecretKeySpec(key, "AES");
             Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, secretKey, new IvParameterSpec(iv));
             
+            // 如果有块内偏移，需要先"跳过"前面的字节
+            // 这是通过加密一个 dummy 数组来实现的，让 cipher 的内部 counter 前进
+            if (blockOffset > 0) {
+                byte[] dummy = new byte[blockOffset];
+                cipher.update(dummy);  // 跳过前面的字节
+            }
+            
+            // 现在执行真正的加密/解密
             return cipher.doFinal(data);
         } catch (Exception e) {
             android.util.Log.e(TAG, "processAesCtr failed", e);
