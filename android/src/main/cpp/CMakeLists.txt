@@ -17,6 +17,7 @@ add_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/lz_logger_jni.cpp
     # C 核心层
     ${PROJECT_ROOT}/src/lz_logger.c
+    ${PROJECT_ROOT}/src/lz_crypto.c
 )
 
 # 包含头文件目录
@@ -26,9 +27,10 @@ target_include_directories(
     ${PROJECT_ROOT}/src
 )
 
-# 链接 Android 日志库
+# 链接 Android 日志库和 OpenSSL
 find_library(log-lib log)
-target_link_libraries(lz_logger ${log-lib})
+find_library(crypto-lib crypto)
+target_link_libraries(lz_logger ${log-lib} ${crypto-lib})
 
 # 编译选项
 target_compile_options(lz_logger PRIVATE -Wall -Wextra)

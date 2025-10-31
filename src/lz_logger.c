@@ -1,4 +1,5 @@
 #include "lz_logger.h"
+#include "lz_crypto.h"
 #include <string.h>
 #include <time.h>
 #include <errno.h>
@@ -98,7 +99,8 @@ typedef struct lz_logger_context_t {
     uint32_t max_file_size;               // 最大文件大小
     
     atomic_bool is_closed;                // 是否已关闭
-    uint8_t is_encrypted;                 // 是否加密
+    
+    lz_crypto_context_t crypto_ctx;       // 加密上下文
 } lz_logger_context_t;
 
 // ============================================================================
@@ -227,7 +229,8 @@ static void build_log_file_path(const char *log_dir,
  */
 static lz_log_error_t create_and_extend_file(const char *file_path,
                                                uint32_t file_size,
-                                               int *out_fd) {
+                                               int *out_fd,
+                                               lz_crypto_context_t *crypto_ctx) {
     int fd = -1;
     lz_log_error_t ret = LZ_LOG_SUCCESS;
     
@@ -245,10 +248,7 @@ static lz_log_error_t create_and_extend_file(const char *file_path,
             break;
         }
         
-        // 写入文件尾部元数据：[ENDX魔数 4字节][已用大小0 4字节]
-        uint32_t magic = LZ_LOG_MAGIC_ENDX;
-        uint32_t used_size = 0;
-        
+        // 写入文件尾部元数据：[盐16字节][ENDX魔数4字节][已用大小4字节]
         off_t footer_offset = file_size - LZ_LOG_FOOTER_SIZE;
         
         if (lseek(fd, footer_offset, SEEK_SET) != footer_offset) {
@@ -256,15 +256,32 @@ static lz_log_error_t create_and_extend_file(const char *file_path,
             break;
         }
         
+        // 写入盐值（如果启用加密则写入真实盐,否则写入全0）
+        uint8_t salt[LZ_LOG_SALT_SIZE] = {0};
+        if (crypto_ctx != NULL && crypto_ctx->is_initialized && crypto_ctx->salt_ptr != NULL) {
+            memcpy(salt, crypto_ctx->salt_ptr, LZ_LOG_SALT_SIZE);
+        }
+        
+        if (write(fd, salt, LZ_LOG_SALT_SIZE) != LZ_LOG_SALT_SIZE) {
+            ret = LZ_LOG_ERROR_FILE_WRITE;
+            break;
+        }
+        
+        // 写入魔数
+        uint32_t magic = LZ_LOG_MAGIC_ENDX;
         if (write(fd, &magic, sizeof(magic)) != sizeof(magic)) {
             ret = LZ_LOG_ERROR_FILE_WRITE;
             break;
         }
         
+        // 写入已用大小(初始为0)
+        uint32_t used_size = 0;
         if (write(fd, &used_size, sizeof(used_size)) != sizeof(used_size)) {
             ret = LZ_LOG_ERROR_FILE_WRITE;
             break;
         }
+        
+        LZ_DEBUG_LOG("Wrote footer: salt + magic + used_size to offset %lld", (long long)footer_offset);
         
         // 同步到磁盘（防止 SIGBUS）
         if (fsync(fd) != 0) {
@@ -294,7 +311,8 @@ static lz_log_error_t create_and_extend_file(const char *file_path,
  */
 static lz_log_error_t open_existing_file(const char *file_path,
                                            int *out_fd,
-                                           uint32_t *out_used_size) {
+                                           uint32_t *out_used_size,
+                                           lz_crypto_context_t *crypto_ctx) {
     int fd = -1;
     lz_log_error_t ret = LZ_LOG_SUCCESS;
     
@@ -318,17 +336,22 @@ static lz_log_error_t open_existing_file(const char *file_path,
             break;
         }
         
-        // 读取文件尾部 footer（魔数 + 已使用大小，共8字节）
+        // 读取文件尾部 footer: [盐16字节][魔数4字节][已用大小4字节]
         off_t footer_offset = st.st_size - LZ_LOG_FOOTER_SIZE;
         if (lseek(fd, footer_offset, SEEK_SET) != footer_offset) {
             ret = LZ_LOG_ERROR_FILE_OPEN;
             break;
         }
         
-        uint32_t magic = 0;
-        uint32_t used_size = 0;
+        // 跳过盐值读取(稍后通过mmap访问)
+        uint8_t salt_buffer[LZ_LOG_SALT_SIZE];
+        if (read(fd, salt_buffer, LZ_LOG_SALT_SIZE) != LZ_LOG_SALT_SIZE) {
+            ret = LZ_LOG_ERROR_FILE_OPEN;
+            break;
+        }
         
         // 读取魔数
+        uint32_t magic = 0;
         if (read(fd, &magic, sizeof(magic)) != sizeof(magic)) {
             ret = LZ_LOG_ERROR_FILE_OPEN;
             break;
@@ -336,11 +359,13 @@ static lz_log_error_t open_existing_file(const char *file_path,
         
         // 验证魔数
         if (magic != LZ_LOG_MAGIC_ENDX) {
+            LZ_DEBUG_LOG("Invalid magic number: 0x%x", magic);
             ret = LZ_LOG_ERROR_FILE_OPEN;
             break;
         }
         
         // 读取已使用大小
+        uint32_t used_size = 0;
         if (read(fd, &used_size, sizeof(used_size)) != sizeof(used_size)) {
             ret = LZ_LOG_ERROR_FILE_OPEN;
             break;
@@ -462,9 +487,11 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         
         // 初始化上下文
         strncpy(ctx->log_dir, log_dir, sizeof(ctx->log_dir) - 1);
-        if (encrypt_key != NULL) {
+        
+        // 保存加密密钥（稍后mmap后初始化加密上下文）
+        if (encrypt_key != NULL && strlen(encrypt_key) > 0) {
             strncpy(ctx->encrypt_key, encrypt_key, sizeof(ctx->encrypt_key) - 1);
-            ctx->is_encrypted = 1;
+            LZ_DEBUG_LOG("Encryption key provided");
         }
         
         ctx->max_file_size = atomic_load(&g_max_file_size);
@@ -473,7 +500,7 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         atomic_store(&ctx->is_closed, false);
         
         LZ_DEBUG_LOG("Context initialized: log_dir=%s, file_size=%u, encrypted=%d", 
-                     log_dir, ctx->file_size, ctx->is_encrypted);
+                     log_dir, ctx->file_size, ctx->crypto_ctx.is_initialized);
         
         // 获取当前日期
         char date_str[16];
@@ -501,7 +528,7 @@ lz_log_error_t lz_logger_open(const char *log_dir,
             build_log_file_path(log_dir, date_str, file_num, 
                                 ctx->current_file_path, sizeof(ctx->current_file_path));
             
-            ret = open_existing_file(ctx->current_file_path, &fd, &used_size);
+            ret = open_existing_file(ctx->current_file_path, &fd, &used_size, NULL);
             
             // 如果文件已满，创建新文件
             if (ret == LZ_LOG_SUCCESS && 
@@ -518,14 +545,13 @@ lz_log_error_t lz_logger_open(const char *log_dir,
             build_log_file_path(log_dir, date_str, file_num, 
                                 ctx->current_file_path, sizeof(ctx->current_file_path));
             
-            ret = create_and_extend_file(ctx->current_file_path, 
-                                          ctx->file_size, &fd);
+            ret = create_and_extend_file(ctx->current_file_path, ctx->file_size, &fd, NULL);
             if (ret != LZ_LOG_SUCCESS) {
                 sys_errno = errno;
                 break;
             }
             
-            used_size = 0;
+            used_size = 0;  // 新文件初始偏移为0
         }
         
         ctx->fd = fd;
@@ -540,6 +566,34 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         }
         
         LZ_DEBUG_LOG("mmap succeeded: ptr=%p, file_size=%u", ctx->mmap_ptr, ctx->file_size);
+        
+        // 初始化加密上下文(如果提供了密钥)
+        if (ctx->encrypt_key[0] != '\0') {
+            // 设置salt_ptr指向mmap中footer的盐区域
+            ctx->crypto_ctx.salt_ptr = (uint8_t *)ctx->mmap_ptr + ctx->file_size - LZ_LOG_FOOTER_SIZE;
+            
+            // 如果是新文件,需要生成新盐
+            if (used_size == 0) {
+                uint8_t temp_salt[LZ_LOG_SALT_SIZE];
+                if (lz_crypto_generate_salt(temp_salt) != 0) {
+                    LZ_DEBUG_LOG("Failed to generate salt");
+                    ret = LZ_LOG_ERROR_FILE_CREATE;
+                    break;
+                }
+                memcpy(ctx->crypto_ctx.salt_ptr, temp_salt, LZ_LOG_SALT_SIZE);
+                msync(ctx->mmap_ptr, ctx->file_size, MS_SYNC);
+                LZ_DEBUG_LOG("Generated new salt for file");
+            }
+            
+            // 使用盐初始化加密上下文
+            if (lz_crypto_init(&ctx->crypto_ctx, ctx->encrypt_key, ctx->crypto_ctx.salt_ptr) != 0) {
+                LZ_DEBUG_LOG("Failed to initialize encryption");
+                ret = LZ_LOG_ERROR_FILE_CREATE;
+                break;
+            }
+            
+            LZ_DEBUG_LOG("Encryption initialized");
+        }
         
         // 同步文件中的偏移量（如果不一致则更新）
         uint32_t file_offset = atomic_load(ctx->cur_offset_ptr);
@@ -627,12 +681,23 @@ const char* lz_logger_error_string(lz_log_error_t error) {
  */
 static lz_log_error_t encrypt_data(lz_logger_context_t *ctx, 
                                      void *data, 
-                                     uint32_t len) {
-    (void)ctx;
-    (void)data;
-    (void)len;
-    // TODO: 实现流式加密
-    return LZ_LOG_SUCCESS;
+                                     uint32_t len,
+                                     uint32_t offset) {
+    // 如果没有初始化加密,直接返回(不加密)
+    if (!ctx->crypto_ctx.is_initialized) {
+        return LZ_LOG_SUCCESS;
+    }
+    
+    // AES-CTR 加密 (原地操作)
+    int result = lz_crypto_process(
+        &ctx->crypto_ctx,
+        (const uint8_t *)data,
+        (uint8_t *)data,
+        len,
+        offset
+    );
+    
+    return (result == 0) ? LZ_LOG_SUCCESS : LZ_LOG_ERROR_DIR_ACCESS;  // 复用错误码
 }
 
 /**
@@ -705,7 +770,7 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
         build_log_file_path(ctx->log_dir, date_str, new_file_num, 
                             new_file_path, sizeof(new_file_path));
         
-        ret = create_and_extend_file(new_file_path, ctx->file_size, &new_fd);
+        ret = create_and_extend_file(new_file_path, ctx->file_size, &new_fd, NULL);
         if (ret != LZ_LOG_SUCCESS) {
             break;
         }
@@ -723,13 +788,40 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
         
         LZ_DEBUG_LOG("New file created and mapped: %s", new_file_path);
         
+        // 如果启用加密，为新文件重新生成盐并重新初始化加密上下文
+        if (ctx->encrypt_key[0] != '\0') {
+            // 设置salt_ptr指向新mmap的footer
+            uint8_t *new_salt_ptr = (uint8_t *)new_mmap_ptr + ctx->file_size - LZ_LOG_FOOTER_SIZE;
+            
+            // 生成新盐
+            uint8_t temp_salt[LZ_LOG_SALT_SIZE];
+            if (lz_crypto_generate_salt(temp_salt) != 0) {
+                LZ_DEBUG_LOG("Failed to generate salt for new file");
+                ret = LZ_LOG_ERROR_FILE_CREATE;
+                break;
+            }
+            memcpy(new_salt_ptr, temp_salt, LZ_LOG_SALT_SIZE);
+            
+            // 更新crypto_ctx的salt_ptr
+            ctx->crypto_ctx.salt_ptr = new_salt_ptr;
+            
+            // 重新初始化加密上下文
+            if (lz_crypto_init(&ctx->crypto_ctx, ctx->encrypt_key, ctx->crypto_ctx.salt_ptr) != 0) {
+                LZ_DEBUG_LOG("Failed to reinitialize encryption for new file");
+                ret = LZ_LOG_ERROR_FILE_CREATE;
+                break;
+            }
+            
+            LZ_DEBUG_LOG("Reinitialized encryption for new file");
+        }
+        
         // 原子替换指针（让写入线程切换到新 mmap）
         // 注意：这个操作不是原子的，但由于有 switch_mutex 保护，是安全的
         ctx->mmap_ptr = new_mmap_ptr;
         ctx->cur_offset_ptr = new_offset_ptr;
         strncpy(ctx->current_file_path, new_file_path, sizeof(ctx->current_file_path) - 1);
         
-        // 初始化新文件的偏移量为 0
+        // 初始化新文件的偏移量为0
         atomic_store(ctx->cur_offset_ptr, 0);
         
         LZ_DEBUG_LOG("Pointer switch completed, storing old mmap for deferred cleanup");
@@ -842,8 +934,13 @@ lz_log_error_t lz_logger_write(lz_logger_handle_t handle,
                 memcpy(write_ptr, message, len);
                 
                 // 流式加密（如果启用）
-                if (ctx->is_encrypted) {
-                    ret = encrypt_data(ctx, write_ptr, len);
+                if (ctx->crypto_ctx.is_initialized) {
+                    // current_offset 已经是文件中的实际偏移量(包括盐区域)
+                    ret = encrypt_data(ctx, write_ptr, len, current_offset);
+                    if (ret != LZ_LOG_SUCCESS) {
+                        LZ_DEBUG_LOG("Encryption failed at offset %u", current_offset);
+                        break;
+                    }
                 }
                 
                 break;  // 写入完成
@@ -904,6 +1001,11 @@ lz_log_error_t lz_logger_close(lz_logger_handle_t handle) {
         if (ctx->old_mmap_ptr != NULL && ctx->old_mmap_ptr != MAP_FAILED) {
             LZ_DEBUG_LOG("Unmapping old mmap: size=%u", ctx->old_file_size);
             munmap(ctx->old_mmap_ptr, ctx->old_file_size);
+        }
+        
+        // 清理加密上下文
+        if (ctx->crypto_ctx.is_initialized) {
+            lz_crypto_cleanup(&ctx->crypto_ctx);
         }
         
         // 销毁互斥锁
@@ -1166,6 +1268,29 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
         if (ret != LZ_LOG_SUCCESS) {
             break;
         }
+        
+        // 写入footer: [盐16字节][魔数4字节][已用大小4字节]
+        // 从mmap的footer位置读取盐
+        uint8_t *salt_ptr = (uint8_t *)ctx->mmap_ptr + ctx->file_size - LZ_LOG_FOOTER_SIZE;
+        if (write(export_fd, salt_ptr, LZ_LOG_SALT_SIZE) != LZ_LOG_SALT_SIZE) {
+            ret = LZ_LOG_ERROR_FILE_WRITE;
+            break;
+        }
+        
+        // 写入魔数
+        uint32_t magic = LZ_LOG_MAGIC_ENDX;
+        if (write(export_fd, &magic, sizeof(magic)) != sizeof(magic)) {
+            ret = LZ_LOG_ERROR_FILE_WRITE;
+            break;
+        }
+        
+        // 写入已用大小
+        if (write(export_fd, &used_size, sizeof(used_size)) != sizeof(used_size)) {
+            ret = LZ_LOG_ERROR_FILE_WRITE;
+            break;
+        }
+        
+        LZ_DEBUG_LOG("Exported log with footer: used_size=%u", used_size);
         
         // 同步到磁盘
         if (fsync(export_fd) != 0) {
