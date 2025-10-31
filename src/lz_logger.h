@@ -34,23 +34,12 @@ typedef enum {
     LZ_LOG_ERROR_MMAP_FAILED = -9,        // mmap映射失败
     LZ_LOG_ERROR_MUNMAP_FAILED = -10,     // munmap解映射失败
     LZ_LOG_ERROR_FILE_SIZE_EXCEED = -11,  // 文件大小超限
-    LZ_LOG_ERROR_ENCRYPTION = -12,        // 加密错误
     LZ_LOG_ERROR_DIR_ACCESS = -13,        // 目录访问失败
     LZ_LOG_ERROR_HANDLE_CLOSED = -14,     // 句柄已关闭
     LZ_LOG_ERROR_FILE_SWITCH = -15,       // 文件切换失败
     LZ_LOG_ERROR_MUTEX_LOCK = -16,        // 互斥锁失败
     LZ_LOG_ERROR_SYSTEM = -100,           // 系统错误（携带errno）
 } lz_log_error_t;
-
-/** 日志级别 */
-typedef enum {
-    LZ_LOG_LEVEL_VERBOSE = 0,
-    LZ_LOG_LEVEL_DEBUG = 1,
-    LZ_LOG_LEVEL_INFO = 2,
-    LZ_LOG_LEVEL_WARN = 3,
-    LZ_LOG_LEVEL_ERROR = 4,
-    LZ_LOG_LEVEL_FATAL = 5,
-} lz_log_level_t;
 
 // ============================================================================
 // Opaque Handle

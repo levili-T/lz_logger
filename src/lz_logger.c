@@ -605,7 +605,6 @@ const char* lz_logger_error_string(lz_log_error_t error) {
         case LZ_LOG_ERROR_MMAP_FAILED: return "Mmap failed";
         case LZ_LOG_ERROR_MUNMAP_FAILED: return "Munmap failed";
         case LZ_LOG_ERROR_FILE_SIZE_EXCEED: return "File size exceeded";
-        case LZ_LOG_ERROR_ENCRYPTION: return "Encryption error";
         case LZ_LOG_ERROR_DIR_ACCESS: return "Directory access failed";
         case LZ_LOG_ERROR_HANDLE_CLOSED: return "Handle closed";
         case LZ_LOG_ERROR_FILE_SWITCH: return "File switch failed";
