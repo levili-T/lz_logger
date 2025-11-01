@@ -26,10 +26,11 @@
    );
    ```
 
-3. iOS 与 Android 会各自打包同一个 `lz_logger` 动态库，其他原生模块可直接链接头文件 `src/lz_logger.h` 暴露的接口。
 
-  - iOS: 使用 `#import <lz_logger/LZLogger.h>` 并调用 `+[LZLogger logWithLevel:tag:file:line:message:]`。
-  - Android: 使用 `com.example.lz_logger.LzLogger.log(...)`，内部通过 JNI 转调共享的 C 核心。
+3. iOS 与 Android 会各自打包同一个 lz_logger 核心库，其他原生模块可直接链接头文件 `src/lz_logger.h` 暴露的接口。
+
+  - iOS: 实际打包的是静态库（.a），使用 `#import <lz_logger/LZLogger.h>` 并调用 `+[LZLogger logWithLevel:tag:file:line:message:]`。
+  - Android: 打包为动态库（.so），使用 `com.example.lz_logger.LzLogger.log(...)`，内部通过 JNI 转调共享的 C 核心。
 
 ## Project structure
 
