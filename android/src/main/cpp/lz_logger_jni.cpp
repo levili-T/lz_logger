@@ -186,8 +186,10 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
         LOGE("Write failed: %s", lz_logger_error_string(ret));
     }
     
+
 #ifdef DEBUG
     // Debug 模式下同步输出到 logcat
+    const char* levelStr = get_level_string(level);
     __android_log_print(ANDROID_LOG_INFO, levelStr, "%s", fullMessage);
 #endif
     

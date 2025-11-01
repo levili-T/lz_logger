@@ -18,7 +18,7 @@ void isolateWorker(Map<String, dynamic> params) {
     // 每个线程写不同级别的日志
     switch (threadIndex) {
       case 0:
-        lzLogVerbose('Thread-$threadIndex', 'Loop $i at $timestamp');
+        lzLogFatal('Thread-$threadIndex', 'Loop $i at $timestamp');
         break;
       case 1:
         lzLogDebug('Thread-$threadIndex', 'Loop $i at $timestamp');
@@ -31,10 +31,13 @@ void isolateWorker(Map<String, dynamic> params) {
         break;
     }
     
-    // 随机等待 50ms - 1000ms
-    final delay = 50 + (seed + i * 100) % 950;
+    // 随机等待 0ms - 20ms 模拟工作负载
+    final delay = (seed + i * 100) % 20;
     sleep(Duration(milliseconds: delay));
   }
+  
+  // 线程完成日志打印
+  debugPrint('Thread-$threadIndex completed all loops');
 }
 
 class MyApp extends StatefulWidget {

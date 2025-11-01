@@ -9,7 +9,8 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         
         // 初始化日志系统
-        val success = LzLogger.prepareLog(applicationContext, "laozhaozhao")
+        LzLogger.setLogLevel(LzLogger.DEBUG)
+        val success = LzLogger.prepareLog(applicationContext, "laozhaozhao", "laozhaozhaozaoshangqushangbanxiaozhaozhaoqushangxue")
         if (success) {
             LzLogger.log(
                 LzLogger.INFO,

@@ -33,4 +33,7 @@ find_library(log-lib log)
 target_link_libraries(lz_logger ${log-lib})
 
 # 编译选项
+
+# Debug模式自动定义DEBUG宏
 target_compile_options(lz_logger PRIVATE -Wall -Wextra)
+target_compile_definitions(lz_logger PRIVATE $<$<CONFIG:Debug>:DEBUG>)
