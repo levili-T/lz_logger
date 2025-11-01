@@ -99,7 +99,7 @@ $ ./decrypt_log.py -d ./logs -o ./decrypted -p mypassword
 ### Q: 如何获取加密日志?
 
 A: 从手机导出日志文件:
-- **Android**: `/sdcard/Android/data/com.klook.shell/files/logs/laozhaozhao/*.log`
+- **Android**: `/sdcard/Android/data/com.example.shell/files/logs/laozhaozhao/*.log`
 - **iOS**: 通过 iTunes 文件共享或 Xcode Devices 窗口导出
 
 ### Q: 解密失败怎么办?
