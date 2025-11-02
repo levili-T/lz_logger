@@ -135,17 +135,17 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
         jstring jFile,
         jint line,
         jstring jMessage) {
-    (void)level; // Level is for future use (filtering, logcat output, etc.)
     
     lz_logger_handle_t handle = reinterpret_cast<lz_logger_handle_t>(jHandle);
     if (handle == nullptr) {
         return;
     }
     
-    const char* tag = env->GetStringUTFChars(jTag, nullptr);
-    const char* function = env->GetStringUTFChars(jFunction, nullptr);
-    const char* file = env->GetStringUTFChars(jFile, nullptr);
-    const char* message = env->GetStringUTFChars(jMessage, nullptr);
+    // 安全获取 JNI 字符串（允许为空）
+    const char* tag = jTag ? env->GetStringUTFChars(jTag, nullptr) : nullptr;
+    const char* function = jFunction ? env->GetStringUTFChars(jFunction, nullptr) : nullptr;
+    const char* file = jFile ? env->GetStringUTFChars(jFile, nullptr) : nullptr;
+    const char* message = jMessage ? env->GetStringUTFChars(jMessage, nullptr) : nullptr;
     
     // 获取线程 ID
     pid_t tid = get_thread_id();
@@ -173,16 +173,27 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
     }
     
     // 构建完整日志消息
-    // 格式: yyyy-MM-dd HH:mm:ss.SSS tid:0x1234 [file:line] [func] [tag] message
+    // 格式: yyyy-MM-dd HH:mm:ss.SSS T:1234 [file:line] [func] [tag] message
+    //       如果 function 为空，则省略 [func] 字段
     char fullMessage[4096];
-    snprintf(fullMessage, sizeof(fullMessage),
-             "%s tid:0x%x [%s] [%s] [%s] %s\n",
-             timestamp.c_str(),
-             tid,
-             location,
-             function != nullptr && strlen(function) > 0 ? function : "unknown",
-             tag != nullptr ? tag : "",
-             message != nullptr ? message : "");
+    if (function != nullptr && strlen(function) > 0) {
+        snprintf(fullMessage, sizeof(fullMessage),
+                 "%s T:%x [%s] [%s] [%s] %s\n",
+                 timestamp.c_str(),
+                 tid,
+                 location,
+                 function,
+                 tag != nullptr ? tag : "",
+                 message != nullptr ? message : "");
+    } else {
+        snprintf(fullMessage, sizeof(fullMessage),
+                 "%s T:%x [%s] [%s] %s\n",
+                 timestamp.c_str(),
+                 tid,
+                 location,
+                 tag != nullptr ? tag : "",
+                 message != nullptr ? message : "");
+    }
     
     // 写入日志
     uint32_t len = static_cast<uint32_t>(strlen(fullMessage));
@@ -200,10 +211,10 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
 #endif
     
     // 释放字符串
-    env->ReleaseStringUTFChars(jTag, tag);
-    env->ReleaseStringUTFChars(jFunction, function);
-    env->ReleaseStringUTFChars(jFile, file);
-    env->ReleaseStringUTFChars(jMessage, message);
+    if (tag) env->ReleaseStringUTFChars(jTag, tag);
+    if (function) env->ReleaseStringUTFChars(jFunction, function);
+    if (file) env->ReleaseStringUTFChars(jFile, file);
+    if (message) env->ReleaseStringUTFChars(jMessage, message);
 }
 
 /**
@@ -331,15 +342,25 @@ void lz_logger_ffi(int level, const char* tag, const char* function, const char*
     std::string timestamp = get_timestamp();
     
     // 构建完整日志消息
-    // 格式: yyyy-MM-dd HH:mm:ss.SSS tid:0x1234 [flutter] [func] [tag] message
+    // 格式: yyyy-MM-dd HH:mm:ss.SSS T:1234 [flutter] [func] [tag] message
+    //       如果 function 为空，则省略 [func] 字段
     char fullMessage[4096];
-    snprintf(fullMessage, sizeof(fullMessage),
-             "%s tid:0x%x [flutter] [%s] [%s] %s\n",
-             timestamp.c_str(),
-             tid,
-             function != nullptr && strlen(function) > 0 ? function : "unknown",
-             tag != nullptr ? tag : "",
-             message != nullptr ? message : "");
+    if (function != nullptr && strlen(function) > 0) {
+        snprintf(fullMessage, sizeof(fullMessage),
+                 "%s T:%x [flutter] [%s] [%s] %s\n",
+                 timestamp.c_str(),
+                 tid,
+                 function,
+                 tag != nullptr ? tag : "",
+                 message != nullptr ? message : "");
+    } else {
+        snprintf(fullMessage, sizeof(fullMessage),
+                 "%s T:%x [flutter] [%s] %s\n",
+                 timestamp.c_str(),
+                 tid,
+                 tag != nullptr ? tag : "",
+                 message != nullptr ? message : "");
+    }
     
     // 写入日志
     uint32_t len = static_cast<uint32_t>(strlen(fullMessage));

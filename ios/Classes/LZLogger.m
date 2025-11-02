@@ -2,6 +2,7 @@
 #import "lz_logger.h"
 #import <pthread.h>
 #import <UIKit/UIKit.h>
+#import <sys/time.h>
 
 @interface LZLogger ()
 
@@ -189,11 +190,16 @@
     uint64_t tid;
     pthread_threadid_np(NULL, &tid);
     
-    // 构建完整的日志消息
-    // 格式: yyyy-MM-dd HH:mm:ss.SSS tid:0x1234 [file:line] [func] [tag] xxx
-    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
-    formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss.SSS";
-    NSString *timestamp = [formatter stringFromDate:[NSDate date]];
+    // 获取时间戳（使用 C 函数提高性能）
+    char timestampBuf[32];
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    struct tm tm_info;
+    localtime_r(&tv.tv_sec, &tm_info);
+    strftime(timestampBuf, sizeof(timestampBuf), "%Y-%m-%d %H:%M:%S", &tm_info);
+    
+    char timestamp[64];
+    snprintf(timestamp, sizeof(timestamp), "%s.%03d", timestampBuf, (int)(tv.tv_usec / 1000));
     
     const char *levelStr = [self levelString:level];
     const char *fileName = file ? strrchr(file, '/') ? strrchr(file, '/') + 1 : file : "unknown";
@@ -203,9 +209,17 @@
         ? [NSString stringWithFormat:@"%s:%lu", fileName, (unsigned long)line]
         : [NSString stringWithUTF8String:fileName];
     
-    NSString *fullMessage = [NSString stringWithFormat:@"%@ tid:0x%llx [%@] [%s] [%@] %@\n",
-                             timestamp, tid, location, 
-                             function ?: "unknown", tag ?: @"", message];
+    // 根据 function 是否为空决定日志格式
+    // 格式: yyyy-MM-dd HH:mm:ss.SSS T:1234 [file:line] [func] [tag] xxx
+    //       如果 function 为空，则省略 [func] 字段
+    NSString *fullMessage;
+    if (function && strlen(function) > 0) {
+        fullMessage = [NSString stringWithFormat:@"%s T:%llx [%@] [%s] [%@] %@\n",
+                       timestamp, tid, location, function, tag ?: @"", message];
+    } else {
+        fullMessage = [NSString stringWithFormat:@"%s T:%llx [%@] [%@] %@\n",
+                       timestamp, tid, location, tag ?: @"", message];
+    }
     
     // 写入日志
     const char *messageCStr = [fullMessage UTF8String];
