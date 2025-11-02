@@ -202,7 +202,9 @@
     snprintf(timestamp, sizeof(timestamp), "%s.%03d", timestampBuf, (int)(tv.tv_usec / 1000));
     
     const char *levelStr = [self levelString:level];
-    const char *fileName = file ? strrchr(file, '/') ? strrchr(file, '/') + 1 : file : "unknown";
+    
+    // 文件名由外部保证只传入文件名，无需提取路径
+    const char *fileName = (file && *file) ? file : "unknown";
     
     // 构建文件位置信息：line 为 0 时只显示文件名
     NSString *location = line > 0 

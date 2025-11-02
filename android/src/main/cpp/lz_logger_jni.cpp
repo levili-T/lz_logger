@@ -16,21 +16,18 @@ static pid_t get_thread_id() {
     return gettid();
 }
 
-// 获取当前时间戳字符串
-static std::string get_timestamp() {
-    char buffer[32];
+// 获取当前时间戳字符串（优化：避免 std::string 动态分配）
+static void get_timestamp(char* out_buffer, size_t buffer_size) {
+    char time_buf[32];
     struct timeval tv;
     gettimeofday(&tv, nullptr);
     
     struct tm tm_info;
     localtime_r(&tv.tv_sec, &tm_info);
     
-    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &tm_info);
+    strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &tm_info);
     
-    char timestamp[64];
-    snprintf(timestamp, sizeof(timestamp), "%s.%03d", buffer, (int)(tv.tv_usec / 1000));
-    
-    return std::string(timestamp);
+    snprintf(out_buffer, buffer_size, "%s.%03d", time_buf, (int)(tv.tv_usec / 1000));
 }
 
 #ifdef DEBUG
@@ -151,18 +148,11 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
     pid_t tid = get_thread_id();
     
     // 获取时间戳
-    std::string timestamp = get_timestamp();
+    char timestamp[64];
+    get_timestamp(timestamp, sizeof(timestamp));
     
-    // 提取文件名（去掉路径）
-    const char* fileName = file;
-    if (file != nullptr && strlen(file) > 0) {
-        const char* lastSlash = strrchr(file, '/');
-        if (lastSlash != nullptr) {
-            fileName = lastSlash + 1;
-        }
-    } else {
-        fileName = "unknown";
-    }
+    // 文件名由外部保证只传入文件名，无需提取路径
+    const char* fileName = (file && *file) ? file : "unknown";
     
     // 构建位置信息：line > 0 时显示 "file:line"，否则只显示 "file"
     char location[256];
@@ -179,7 +169,7 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
     if (function != nullptr && strlen(function) > 0) {
         snprintf(fullMessage, sizeof(fullMessage),
                  "%s T:%x [%s] [%s] [%s] %s\n",
-                 timestamp.c_str(),
+                 timestamp,
                  tid,
                  location,
                  function,
@@ -188,7 +178,7 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
     } else {
         snprintf(fullMessage, sizeof(fullMessage),
                  "%s T:%x [%s] [%s] %s\n",
-                 timestamp.c_str(),
+                 timestamp,
                  tid,
                  location,
                  tag != nullptr ? tag : "",
@@ -339,7 +329,8 @@ void lz_logger_ffi(int level, const char* tag, const char* function, const char*
     pid_t tid = get_thread_id();
     
     // 获取时间戳
-    std::string timestamp = get_timestamp();
+    char timestamp[64];
+    get_timestamp(timestamp, sizeof(timestamp));
     
     // 构建完整日志消息
     // 格式: yyyy-MM-dd HH:mm:ss.SSS T:1234 [flutter] [func] [tag] message
@@ -348,7 +339,7 @@ void lz_logger_ffi(int level, const char* tag, const char* function, const char*
     if (function != nullptr && strlen(function) > 0) {
         snprintf(fullMessage, sizeof(fullMessage),
                  "%s T:%x [flutter] [%s] [%s] %s\n",
-                 timestamp.c_str(),
+                 timestamp,
                  tid,
                  function,
                  tag != nullptr ? tag : "",
@@ -356,7 +347,7 @@ void lz_logger_ffi(int level, const char* tag, const char* function, const char*
     } else {
         snprintf(fullMessage, sizeof(fullMessage),
                  "%s T:%x [flutter] [%s] %s\n",
-                 timestamp.c_str(),
+                 timestamp,
                  tid,
                  tag != nullptr ? tag : "",
                  message != nullptr ? message : "");
