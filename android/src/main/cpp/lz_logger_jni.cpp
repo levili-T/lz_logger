@@ -102,17 +102,23 @@ Java_io_levili_lzlogger_LzLogger_nativeOpen(
 }
 
 /**
- * 设置 FFI 全局 handle
+ * 设置 FFI 全局 handle 和日志级别
  */
 JNIEXPORT void JNICALL
 Java_io_levili_lzlogger_LzLogger_nativeSetFfiHandle(
         JNIEnv* /* env */,
         jobject /* this */,
-        jlong jHandle) {
+        jlong jHandle,
+        jint jLogLevel) {
     
     lz_logger_handle_t handle = reinterpret_cast<lz_logger_handle_t>(jHandle);
     lz_logger_ffi_set_handle(handle);
-    LOGI("FFI handle set: %p", handle);
+    
+    // 设置 FFI 日志级别
+    extern int g_ffi_log_level;
+    g_ffi_log_level = jLogLevel;
+    
+    LOGI("FFI handle set: %p, log level: %d", handle, jLogLevel);
 }
 
 /**
@@ -297,8 +303,9 @@ Java_io_levili_lzlogger_LzLogger_nativeCleanupExpiredLogs(
 // FFI function for Dart integration (matching iOS implementation)
 // ============================================================================
 
-// Global handle cache (must be set before using lz_logger_ffi)
+// Global handle and log level cache (must be set before using lz_logger_ffi)
 static lz_logger_handle_t g_ffi_handle = nullptr;
+int g_ffi_log_level = 2; // 默认 INFO 级别 (非 static，供 JNI 访问)
 
 extern "C" __attribute__((visibility("default"), used))
 void lz_logger_ffi_set_handle(lz_logger_handle_t handle) {
@@ -307,7 +314,10 @@ void lz_logger_ffi_set_handle(lz_logger_handle_t handle) {
 
 extern "C" __attribute__((visibility("default"), used))
 void lz_logger_ffi(int level, const char* tag, const char* function, const char* message) {
-    (void)level; // Level is for future use (filtering, logcat output, etc.)
+    // 级别过滤
+    if (level < g_ffi_log_level) {
+        return;
+    }
     
     if (g_ffi_handle == nullptr) {
         LOGE("lz_logger_ffi: handle not set, call lz_logger_ffi_set_handle first");

@@ -1,0 +1,22 @@
+PODS:
+  - Flutter (1.0.0)
+  - lz_logger (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - lz_logger (from `.symlinks/plugins/lz_logger/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  lz_logger:
+    :path: ".symlinks/plugins/lz_logger/ios"
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  lz_logger: ecd258cc7a9c30f3b700667a66d1e1ab9a2e01cb
+
+PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
+
+COCOAPODS: 1.16.2

@@ -104,8 +104,8 @@ object LzLogger : DefaultLifecycleObserver {
         logDir = logDirPath
         isInitialized = true
 
-        // 设置 FFI 全局 handle (供 Dart FFI 使用)
-        nativeSetFfiHandle(handle)
+        // 设置 FFI 全局 handle 和日志级别 (供 Dart FFI 使用)
+        nativeSetFfiHandle(handle, currentLevel)
 
         // 注册进程生命周期监听，自动关闭日志
         try {
@@ -133,11 +133,16 @@ object LzLogger : DefaultLifecycleObserver {
     }
 
     /**
-     * 设置日志级别（只记录大于等于此级别的日志）
+     * 设置日志级别
+     * 注意：必须在 prepareLog 之前调用，初始化后调用会抛出异常
      * @param level 日志级别
+     * @throws IllegalStateException 如果在 prepareLog 之后调用
      */
     @JvmStatic
     fun setLogLevel(level: Int) {
+        if (isInitialized) {
+            throw IllegalStateException("setLogLevel must be called before prepareLog")
+        }
         currentLevel = level
     }
 
@@ -265,7 +270,7 @@ object LzLogger : DefaultLifecycleObserver {
 
     // Native 方法声明
     private external fun nativeOpen(logDir: String, encryptKey: String?, outErrors: IntArray): Long
-    private external fun nativeSetFfiHandle(handle: Long)
+    private external fun nativeSetFfiHandle(handle: Long, logLevel: Int)
     private external fun nativeLog(handle: Long, level: Int, tag: String, function: String, file: String, line: Int, message: String)
     private external fun nativeFlush(handle: Long)
     private external fun nativeClose(handle: Long)
