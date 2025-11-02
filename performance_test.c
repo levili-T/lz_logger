@@ -27,6 +27,39 @@ static uint64_t get_timestamp_us() {
     return (uint64_t)tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
+// 格式化数字（添加千分位分隔符）
+static char* format_number(int num) {
+    static char buffers[4][32];  // 使用4个缓冲区轮换
+    static int buffer_index = 0;
+    
+    char* buffer = buffers[buffer_index];
+    buffer_index = (buffer_index + 1) % 4;
+    
+    char temp[32];
+    snprintf(temp, sizeof(temp), "%d", num);
+    
+    int len = strlen(temp);
+    int comma_count = (len - 1) / 3;
+    int new_len = len + comma_count;
+    
+    buffer[new_len] = '\0';
+    
+    int temp_idx = len - 1;
+    int buf_idx = new_len - 1;
+    int count = 0;
+    
+    while (temp_idx >= 0) {
+        if (count == 3) {
+            buffer[buf_idx--] = ',';
+            count = 0;
+        }
+        buffer[buf_idx--] = temp[temp_idx--];
+        count++;
+    }
+    
+    return buffer;
+}
+
 // 创建测试目录
 static int create_test_dir() {
     char cmd[256];
@@ -36,9 +69,7 @@ static int create_test_dir() {
 
 // 单线程性能测试
 static void test_single_thread_performance() {
-    printf("\n========================================\n");
-    printf("测试1: 单线程写入性能\n");
-    printf("========================================\n");
+    printf("\n## 测试1: 单线程写入性能\n\n");
     
     lz_logger_handle_t handle = NULL;
     int32_t inner_error = 0, sys_errno = 0;
@@ -80,13 +111,15 @@ static void test_single_thread_performance() {
     double mb_per_sec = mb_written / elapsed_sec;
     
     printf("✅ 测试完成\n\n");
-    printf("📊 性能指标:\n");
-    printf("  - 总耗时:          %.2f 秒\n", elapsed_sec);
-    printf("  - 日志条数:        %d 条\n", SINGLE_THREAD_ITERATIONS);
-    printf("  - 写入速度:        %.0f 条/秒\n", logs_per_sec);
-    printf("  - 单条耗时:        %.2f 微秒/条\n", us_per_log);
-    printf("  - 数据量:          %.2f MB\n", mb_written);
-    printf("  - 吞吐量:          %.2f MB/秒\n", mb_per_sec);
+    printf("| 指标 | 数值 |\n");
+    printf("|------|------|\n");
+    printf("| **总耗时** | %.2f 秒 |\n", elapsed_sec);
+    printf("| **日志条数** | %d 条 |\n", SINGLE_THREAD_ITERATIONS);
+    printf("| **写入速度** | **%s 条/秒** |\n", format_number((int)logs_per_sec));
+    printf("| **单条耗时** | **%.2f 微秒/条** |\n", us_per_log);
+    printf("| **数据量** | %.2f MB |\n", mb_written);
+    printf("| **吞吐量** | **%.2f MB/秒** |\n", mb_per_sec);
+    printf("\n");
     
     lz_logger_close(handle);
 }
@@ -120,9 +153,7 @@ static void* thread_write_func(void* arg) {
 
 // 多线程性能测试
 static void test_multi_thread_performance() {
-    printf("\n========================================\n");
-    printf("测试2: 多线程并发写入性能\n");
-    printf("========================================\n");
+    printf("\n## 测试2: 多线程并发写入性能\n\n");
     
     lz_logger_handle_t handle = NULL;
     int32_t inner_error = 0, sys_errno = 0;
@@ -174,7 +205,6 @@ static void test_multi_thread_performance() {
         }
     }
     
-    int total_logs = NUM_THREADS * MULTI_THREAD_ITERATIONS;
     double elapsed_sec = total_elapsed_us / 1000000.0;
     double logs_per_sec = total_success / elapsed_sec;
     double us_per_log = (double)max_thread_time / MULTI_THREAD_ITERATIONS;
@@ -182,31 +212,35 @@ static void test_multi_thread_performance() {
     double mb_per_sec = mb_written / elapsed_sec;
     
     printf("✅ 测试完成\n\n");
-    printf("📊 性能指标:\n");
-    printf("  - 线程数:          %d 个\n", NUM_THREADS);
-    printf("  - 总耗时:          %.2f 秒\n", elapsed_sec);
-    printf("  - 日志条数:        %d 条\n", total_success);
-    printf("  - 写入速度:        %.0f 条/秒\n", logs_per_sec);
-    printf("  - 单条耗时:        %.2f 微秒/条 (最慢线程)\n", us_per_log);
-    printf("  - 数据量:          %.2f MB\n", mb_written);
-    printf("  - 吞吐量:          %.2f MB/秒\n", mb_per_sec);
+    printf("| 指标 | 数值 |\n");
+    printf("|------|------|\n");
+    printf("| **线程数** | %d 个 |\n", NUM_THREADS);
+    printf("| **总耗时** | %.2f 秒 |\n", elapsed_sec);
+    printf("| **日志条数** | %s 条 |\n", format_number(total_success));
+    printf("| **写入速度** | **%s 条/秒** |\n", format_number((int)logs_per_sec));
+    printf("| **单条耗时** | **%.2f 微秒/条** (最慢线程) |\n", us_per_log);
+    printf("| **数据量** | %.2f MB |\n", mb_written);
+    printf("| **吞吐量** | **%.2f MB/秒** |\n", mb_per_sec);
     
-    printf("\n📈 各线程详情:\n");
+    printf("\n**各线程性能分布：**\n\n");
+    printf("| 线程 | 耗时(秒) | 日志数 | 速度(条/秒) |\n");
+    printf("|------|----------|--------|-------------|\n");
     for (int i = 0; i < NUM_THREADS; i++) {
         double thread_sec = thread_data[i].elapsed_us / 1000000.0;
-        double thread_logs_per_sec = thread_data[i].success_count / thread_sec;
-        printf("  线程 %d: %.2f 秒, %d 条, %.0f 条/秒\n",
-               i, thread_sec, thread_data[i].success_count, thread_logs_per_sec);
+        double thread_logs_per_sec = MULTI_THREAD_ITERATIONS / thread_sec;
+        printf("| 线程 %d | %.2f | %s | %s |\n",
+               i, thread_sec, 
+               format_number(MULTI_THREAD_ITERATIONS),
+               format_number((int)thread_logs_per_sec));
     }
+    printf("\n");
     
     lz_logger_close(handle);
 }
 
 // 测试加密模式性能
 static void test_encryption_performance() {
-    printf("\n========================================\n");
-    printf("测试3: 加密模式性能对比\n");
-    printf("========================================\n");
+    printf("\n## 测试3: 加密模式性能测试\n\n");
     
     const char* encrypt_key = "test_encryption_key_12345678";
     lz_logger_handle_t handle = NULL;
@@ -220,12 +254,13 @@ static void test_encryption_performance() {
         return;
     }
     
-    printf("✅ 日志系统初始化成功（加密模式）\n");
-    printf("📝 开始写入 %d 条日志...\n\n", SINGLE_THREAD_ITERATIONS);
+    printf("✅ 日志系统初始化成功（加密模式: AES-128-CBC）\n");
+    printf("📝 开始写入 %s 条日志...\n\n", format_number(SINGLE_THREAD_ITERATIONS));
     
     uint64_t start_time = get_timestamp_us();
     
     // 写入测试
+    int success_count = 0;
     for (int i = 0; i < SINGLE_THREAD_ITERATIONS; i++) {
         const char* msg = test_messages[i % num_test_messages];
         ret = lz_logger_write(handle, msg, (uint32_t)strlen(msg));
@@ -233,6 +268,7 @@ static void test_encryption_performance() {
             printf("❌ 写入失败: %s\n", lz_logger_error_string(ret));
             break;
         }
+        success_count++;
     }
     
     uint64_t end_time = get_timestamp_us();
@@ -241,23 +277,29 @@ static void test_encryption_performance() {
     lz_logger_flush(handle);
     
     double elapsed_sec = elapsed_us / 1000000.0;
-    double logs_per_sec = SINGLE_THREAD_ITERATIONS / elapsed_sec;
-    double us_per_log = (double)elapsed_us / SINGLE_THREAD_ITERATIONS;
+    double logs_per_sec = success_count / elapsed_sec;
+    double us_per_log = (double)elapsed_us / success_count;
+    double mb_written = (success_count * 120) / (1024.0 * 1024.0);
+    double mb_per_sec = mb_written / elapsed_sec;
     
     printf("✅ 测试完成\n\n");
-    printf("📊 性能指标（加密模式）:\n");
-    printf("  - 总耗时:          %.2f 秒\n", elapsed_sec);
-    printf("  - 写入速度:        %.0f 条/秒\n", logs_per_sec);
-    printf("  - 单条耗时:        %.2f 微秒/条\n", us_per_log);
+    printf("| 指标 | 数值 |\n");
+    printf("|------|------|\n");
+    printf("| **总耗时** | %.2f 秒 |\n", elapsed_sec);
+    printf("| **日志条数** | %s 条 |\n", format_number(success_count));
+    printf("| **写入速度** | **%s 条/秒** |\n", format_number((int)logs_per_sec));
+    printf("| **单条耗时** | **%.2f 微秒/条** |\n", us_per_log);
+    printf("| **数据量** | %.2f MB |\n", mb_written);
+    printf("| **吞吐量** | **%.2f MB/秒** |\n", mb_per_sec);
+    printf("\n");
     
     lz_logger_close(handle);
 }
 
 int main() {
     printf("\n");
-    printf("╔════════════════════════════════════════╗\n");
-    printf("║    LZ Logger 性能测试工具 v1.0        ║\n");
-    printf("╚════════════════════════════════════════╝\n");
+    printf("# LZ Logger 性能测试报告\n\n");
+    printf("**测试工具版本:** v1.0  \n");
     
     // 创建测试目录
     if (create_test_dir() != 0) {
@@ -265,7 +307,7 @@ int main() {
         return 1;
     }
     
-    printf("\n📁 测试目录: %s\n", TEST_LOG_DIR);
+    printf("**测试目录:** `%s`  \n", TEST_LOG_DIR);
     
     // 运行测试
     test_single_thread_performance();
@@ -276,11 +318,8 @@ int main() {
     
     test_encryption_performance();
     
-    printf("\n");
-    printf("╔════════════════════════════════════════╗\n");
-    printf("║         所有测试完成！                 ║\n");
-    printf("╚════════════════════════════════════════╝\n");
-    printf("\n");
+    printf("\n---\n\n");
+    printf("✅ **所有测试完成！**\n\n");
     
     return 0;
 }
