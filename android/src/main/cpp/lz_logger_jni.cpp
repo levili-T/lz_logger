@@ -11,6 +11,9 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+// 日志消息缓冲区大小
+#define LOG_MESSAGE_BUFFER_SIZE 4096
+
 // 获取当前线程 ID
 static pid_t get_thread_id() {
     return gettid();
@@ -165,29 +168,46 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
     // 构建完整日志消息
     // 格式: yyyy-MM-dd HH:mm:ss.SSS T:1234 [file:line] [func] [tag] message
     //       如果 function 为空，则省略 [func] 字段
-    char fullMessage[4096];
-    if (function != nullptr && strlen(function) > 0) {
-        snprintf(fullMessage, sizeof(fullMessage),
-                 "%s T:%x [%s] [%s] [%s] %s\n",
-                 timestamp,
-                 tid,
-                 location,
-                 function,
-                 tag != nullptr ? tag : "",
-                 message != nullptr ? message : "");
+    char fullMessage[LOG_MESSAGE_BUFFER_SIZE];
+    int len; // snprintf 返回写入的字符数（不包括 null）
+    
+    if (function && *function) {  // 优化：直接检查指针和首字符，无需 strlen
+        len = snprintf(fullMessage, sizeof(fullMessage),
+                       "%s T:%x [%s] [%s] [%s] %s\n",
+                       timestamp,
+                       tid,
+                       location,
+                       function,
+                       tag ? tag : "",
+                       message ? message : "");
     } else {
-        snprintf(fullMessage, sizeof(fullMessage),
-                 "%s T:%x [%s] [%s] %s\n",
-                 timestamp,
-                 tid,
-                 location,
-                 tag != nullptr ? tag : "",
-                 message != nullptr ? message : "");
+        len = snprintf(fullMessage, sizeof(fullMessage),
+                       "%s T:%x [%s] [%s] %s\n",
+                       timestamp,
+                       tid,
+                       location,
+                       tag ? tag : "",
+                       message ? message : "");
     }
     
-    // 写入日志
-    uint32_t len = static_cast<uint32_t>(strlen(fullMessage));
-    lz_log_error_t ret = lz_logger_write(handle, fullMessage, len);
+    // 处理 snprintf 结果：如果超长则截断，如果出错则跳过
+    if (len < 0) {
+        LOGE("Log formatting error");
+        // 释放字符串后返回
+        if (tag) env->ReleaseStringUTFChars(jTag, tag);
+        if (function) env->ReleaseStringUTFChars(jFunction, function);
+        if (file) env->ReleaseStringUTFChars(jFile, file);
+        if (message) env->ReleaseStringUTFChars(jMessage, message);
+        return;
+    }
+    
+    // 如果超长被截断，使用实际缓冲区大小（snprintf 会保证 null 终止）
+    if (len >= (int)sizeof(fullMessage)) {
+        len = sizeof(fullMessage) - 1;  // 截断，不包括 null
+    }
+    
+    // 写入日志（直接使用计算出的长度，无需再次 strlen）
+    lz_log_error_t ret = lz_logger_write(handle, fullMessage, (uint32_t)len);
     
     if (ret != LZ_LOG_SUCCESS) {
         LOGE("Write failed: %s", lz_logger_error_string(ret));
@@ -335,27 +355,39 @@ void lz_logger_ffi(int level, const char* tag, const char* function, const char*
     // 构建完整日志消息
     // 格式: yyyy-MM-dd HH:mm:ss.SSS T:1234 [flutter] [func] [tag] message
     //       如果 function 为空，则省略 [func] 字段
-    char fullMessage[4096];
-    if (function != nullptr && strlen(function) > 0) {
-        snprintf(fullMessage, sizeof(fullMessage),
-                 "%s T:%x [flutter] [%s] [%s] %s\n",
-                 timestamp,
-                 tid,
-                 function,
-                 tag != nullptr ? tag : "",
-                 message != nullptr ? message : "");
+    char fullMessage[LOG_MESSAGE_BUFFER_SIZE];
+    int len; // snprintf 返回写入的字符数（不包括 null）
+    
+    if (function && *function) {  // 优化：直接检查指针和首字符，无需 strlen
+        len = snprintf(fullMessage, sizeof(fullMessage),
+                       "%s T:%x [flutter] [%s] [%s] %s\n",
+                       timestamp,
+                       tid,
+                       function,
+                       tag ? tag : "",
+                       message ? message : "");
     } else {
-        snprintf(fullMessage, sizeof(fullMessage),
-                 "%s T:%x [flutter] [%s] %s\n",
-                 timestamp,
-                 tid,
-                 tag != nullptr ? tag : "",
-                 message != nullptr ? message : "");
+        len = snprintf(fullMessage, sizeof(fullMessage),
+                       "%s T:%x [flutter] [%s] %s\n",
+                       timestamp,
+                       tid,
+                       tag ? tag : "",
+                       message ? message : "");
     }
     
-    // 写入日志
-    uint32_t len = static_cast<uint32_t>(strlen(fullMessage));
-    lz_log_error_t ret = lz_logger_write(g_ffi_handle, fullMessage, len);
+    // 处理 snprintf 结果：如果超长则截断，如果出错则跳过
+    if (len < 0) {
+        LOGE("FFI log formatting error");
+        return;
+    }
+    
+    // 如果超长被截断，使用实际缓冲区大小
+    if (len >= (int)sizeof(fullMessage)) {
+        len = sizeof(fullMessage) - 1;  // 截断，不包括 null
+    }
+    
+    // 写入日志（直接使用计算出的长度，无需再次 strlen）
+    lz_log_error_t ret = lz_logger_write(g_ffi_handle, fullMessage, (uint32_t)len);
     
     if (ret != LZ_LOG_SUCCESS) {
         LOGE("FFI write failed: %s", lz_logger_error_string(ret));
