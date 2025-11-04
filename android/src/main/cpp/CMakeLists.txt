@@ -37,3 +37,6 @@ target_link_libraries(lz_logger ${log-lib})
 # Debug模式自动定义DEBUG宏
 target_compile_options(lz_logger PRIVATE -Wall -Wextra)
 target_compile_definitions(lz_logger PRIVATE $<$<CONFIG:Debug>:DEBUG>)
+
+# Support Android 15 16KB page size
+target_link_options(lz_logger PRIVATE "-Wl,-z,max-page-size=16384")
