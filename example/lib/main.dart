@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:isolate';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lz_logger/lz_logger.dart';
 
 void main() {
@@ -49,6 +50,9 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   String _status = 'Logger initialized via native code.\nWaiting for user action...';
+  bool _isRunningTest = false;
+  
+  static const platform = MethodChannel('lz_logger_performance_test');
 
   @override
   void initState() {
@@ -109,6 +113,37 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
+  void _runPerformanceTest() async {
+    if (_isRunningTest) return;
+    
+    setState(() {
+      _isRunningTest = true;
+      _status = 'Running performance tests...\nPlease check console for detailed results.';
+    });
+    
+    try {
+      debugPrint('\n========================================');
+      debugPrint('Starting LZ Logger Performance Tests');
+      debugPrint('Platform: ${Platform.operatingSystem}');
+      debugPrint('========================================\n');
+      
+      final result = await platform.invokeMethod('runPerformanceTests');
+      
+      setState(() {
+        _status = 'Performance tests completed!\n\n$result\n\nCheck console for detailed results.';
+      });
+    } catch (e) {
+      debugPrint('Error running performance tests: $e');
+      setState(() {
+        _status = 'Performance tests failed!\n\nError: $e';
+      });
+    } finally {
+      setState(() {
+        _isRunningTest = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -130,6 +165,15 @@ class _MyAppState extends State<MyApp> {
                 ElevatedButton(
                   onPressed: _sendLog,
                   child: const Text('Send Log'),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _isRunningTest ? null : _runPerformanceTest,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: Text(_isRunningTest ? 'Running Tests...' : 'Run Performance Test'),
                 ),
               ],
             ),
