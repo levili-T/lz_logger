@@ -144,23 +144,28 @@ public class LzLoggerPerformanceTest {
     // ============================================================================
     
     private void measureLogWritePerformance(String message, String encryptKey, int iterations) {
-        // 打开 logger
-        boolean success = LzLogger.prepareLog(context, "perf_test", encryptKey);
+        // 确保先关闭之前的 logger（避免状态混乱）
+        LzLogger.close();
+        
+        // 打开 logger，使用唯一的测试目录名（避免测试间干扰）
+        String testName = encryptKey != null ? "perf_encrypted_" + message.length() : "perf_plain_" + message.length();
+        boolean success = LzLogger.prepareLog(context, testName, encryptKey);
         if (!success) {
             throw new RuntimeException("Failed to prepare logger");
         }
         
-        // 预热（500次）
-        for (int i = 0; i < 500; i++) {
-            LzLogger.log(LzLogger.INFO, "PERF", message);
+        // 预热（1000次，确保 CPU 缓存稳定）
+        for (int i = 0; i < 1000; i++) {
+            LzLogger.log(LzLogger.INFO, "PERF", message, "measureLogWritePerformance", "LzLoggerPerformanceTest.java", 0);
         }
         LzLogger.flush();
         
         // 性能测量
         long startTime = System.nanoTime();
         for (int i = 0; i < iterations; i++) {
-            LzLogger.log(LzLogger.INFO, "PERF", message);
+            LzLogger.log(LzLogger.INFO, "PERF", message, "measureLogWritePerformance", "LzLoggerPerformanceTest.java", i);
         }
+        LzLogger.flush(); // 确保所有数据写入磁盘
         long endTime = System.nanoTime();
         
         // 计算统计数据

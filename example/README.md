@@ -1,16 +1,175 @@
 # lz_logger_example
 
-Demonstrates how to use the lz_logger plugin.
+完整的 lz_logger 示例项目，包含性能测试和多线程测试。
 
-## Getting Started
+## 项目结构
 
-This project is a starting point for a Flutter application.
+```
+example/
+├── lib/main.dart                    # Flutter UI + Dart FFI 多线程测试
+├── android/
+│   └── app/src/
+│       ├── main/                    # Android 原生初始化
+│       └── androidTest/             # Android 性能测试
+└── ios/
+    ├── Runner/                      # iOS 原生初始化
+    └── RunnerTests/                 # iOS 性能测试
+```
 
-A few resources to get you started if this is your first Flutter project:
+## 功能说明
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### 1. Flutter UI Demo (lib/main.dart) - 多线程稳定性测试
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+**测试目的**：验证多线程并发写入的**正确性和稳定性**（非性能测试）
+
+**测试场景**：
+- 🎯 **目标**：测试 CAS 无锁设计在并发场景下的正确性
+- 📝 **方式**：4 个 Dart Isolate（真正的系统线程）同时写入
+- 🔢 **负载**：每个线程 20,000 条日志 = 总计 80,000 条
+- ⏱️ **竞争**：随机 0-20ms 延迟，制造并发竞争和锁竞争场景
+- ✅ **验证**：运行完成无崩溃、无死锁、无数据损坏
+
+**运行方式**：
+```bash
+cd example
+flutter run
+# 1. 点击 "Send Log" 按钮开始测试
+# 2. 等待约 5-10 分钟（长时间并发压力测试）
+# 3. 完成后显示 "Completed!"
+# 4. 检查日志文件完整性（无崩溃 = ✅）
+```
+
+**为什么不是性能测试？**
+- 性能测试应该**尽快写完**，测试吞吐量
+- 此测试故意**加延迟**，制造并发竞争场景
+- 重点验证：多线程安全性 > 写入速度
+
+---
+
+### 2. iOS 性能测试 (ios/RunnerTests/)
+
+**测试用例**：
+- ✅ 无加密：短消息（50字节）、中等消息（150字节）、长消息（300字节）
+- ✅ 有加密：短消息、中等消息、长消息
+- ✅ 极限测试：连续写入 10,000 条（无加密/有加密）
+
+**运行方式**：
+```bash
+cd example/ios
+xcodebuild test \
+  -workspace Runner.xcworkspace \
+  -scheme Runner \
+  -destination 'platform=iOS Simulator,name=iPhone 15'
+  
+# 或在 Xcode 中：⌘+U
+```
+
+**查看结果**：
+- Xcode → Test Navigator → 查看各测试用例的平均耗时
+- XCTest 自动运行 10 次取平均值
+
+### 3. Android 性能测试 (android/app/src/androidTest/)
+
+**测试用例**：
+- ✅ 无加密：短消息（50字节）、中等消息（150字节）、长消息（300字节）
+- ✅ 有加密：短消息、中等消息、长消息
+- ✅ 极限测试：连续写入 10,000 条（无加密/有加密）
+
+**运行方式**：
+```bash
+cd example/android
+./gradlew connectedAndroidTest
+
+# 或使用 Android Studio：
+# 右键 LzLoggerPerformanceTest.java → Run
+```
+
+**查看结果**：
+```bash
+# 测试报告：
+open app/build/reports/androidTests/connected/index.html
+
+# Logcat 输出：
+adb logcat -s LzLoggerPerf
+```
+
+## 性能测试结果说明
+
+### 测试方法
+
+1. **预热阶段**：写入 1000 条日志（确保 CPU 缓存稳定）
+2. **测量阶段**：
+   - iOS: XCTest `measureBlock` 自动运行 10 次
+   - Android: 手动计时，计算平均耗时和吞吐量
+3. **包含 flush**：确保所有数据写入磁盘
+
+### 预期性能（参考）
+
+**单线程（Apple Silicon / 高端 Android）**：
+- 无加密：~0.5-1.0 μs/条（100-200万条/秒）
+- 有加密：~1.5-3.0 μs/条（30-70万条/秒）
+
+**多线程（4线程）**：
+- 总吞吐量：~50-100万条/秒
+- 性能保持率：30-40%（正常，因为文件切换开销）
+
+### 性能优化要点
+
+1. ✅ **预热充分**：1000 条预热确保缓存稳定
+2. ✅ **包含 flush**：真实场景需要持久化
+3. ✅ **完整日志**：包含时间戳、标签、文件名等
+4. ✅ **独立测试**：每次测试关闭并重新打开 logger
+
+## 开发说明
+
+### 原生侧初始化
+
+**Android (MainActivity.kt)**：
+```kotlin
+LzLogger.setLogLevel(LzLogger.DEBUG)
+LzLogger.prepareLog(applicationContext, "laozhaozhao", "encryptKey")
+```
+
+**iOS (AppDelegate.swift)**：
+```swift
+LZLogger.sharedInstance().prepareLog("testlog", encryptKey: "encryptKey")
+```
+
+### Dart FFI 使用
+
+```dart
+import 'package:lz_logger/lz_logger.dart';
+
+// 直接使用（原生侧已初始化）
+lzLogInfo('Tag', 'Message');
+lzLogDebug('Tag', 'Message');
+lzLogWarn('Tag', 'Message');
+lzLogError('Tag', 'Message');
+lzLogFatal('Tag', 'Message');
+```
+
+## 故障排查
+
+### iOS 测试失败
+```bash
+# 检查日志目录权限
+po NSTemporaryDirectory()
+
+# 检查是否成功创建 logger
+断点设置在 lz_logger_open
+```
+
+### Android 测试失败
+```bash
+# 检查日志路径
+adb shell ls -la /sdcard/Android/data/<package>/files/logs/
+
+# 查看详细日志
+adb logcat -s LzLogger:V LzLoggerPerf:V
+```
+
+## 更多信息
+
+- 项目主页: [lz_logger](../)
+- 性能报告: [PERFORMANCE_REPORT.md](../PERFORMANCE_REPORT.md)
+- 优化总结: [OPTIMIZATION_SUMMARY.md](../OPTIMIZATION_SUMMARY.md)
