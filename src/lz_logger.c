@@ -865,6 +865,14 @@ lz_log_error_t lz_logger_write(lz_logger_handle_t handle,
             break;
         }
         
+        // 检查日志长度是否超过文件可用空间（超过则直接丢弃）
+        uint32_t max_data_size = ctx->file_size - LZ_LOG_FOOTER_SIZE;
+        if (len > max_data_size) {
+            LZ_DEBUG_LOG("Drop log: len=%u exceeds max_data_size=%u", len, max_data_size);
+            ret = LZ_LOG_ERROR_FILE_SIZE_EXCEED;
+            break;
+        }
+        
         // 检查句柄是否已关闭
         if (atomic_load(&ctx->is_closed)) {
             LZ_DEBUG_LOG("Write failed: handle is closed");
