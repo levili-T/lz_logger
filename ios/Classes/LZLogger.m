@@ -235,7 +235,10 @@
     
 #ifdef DEBUG
     // Debug 模式下同步输出到控制台
-    NSLog(@"[%s] %@", levelStr, fullMessage);
+    // 但如果是 FFI 调用（file="flutter"），则跳过 NSLog（Dart 层会用 print 输出）
+    if (strcmp(file, "flutter") != 0) {
+        NSLog(@"[%s] %@", levelStr, fullMessage);
+    }
 #endif
 }
 
@@ -362,6 +365,7 @@ void lz_logger_ffi(int loglevel, const char* tag, const char* function, const ch
     NSString *nsMessage = message ? ([NSString stringWithUTF8String:message] ?: @"") : @"";
     const char *functionStr = function ? function : "";
     
+    // 调用 log 方法，传入 file="flutter" 以便识别并跳过 NSLog 输出
     [[LZLogger sharedInstance] log:(LZLogLevel)loglevel
                               file:"flutter"
                           function:functionStr

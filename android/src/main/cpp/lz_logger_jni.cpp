@@ -33,8 +33,7 @@ static void get_timestamp(char* out_buffer, size_t buffer_size) {
     snprintf(out_buffer, buffer_size, "%s.%03d", time_buf, (int)(tv.tv_usec / 1000));
 }
 
-#ifdef DEBUG
-// 日志级别字符串 (仅 Debug 模式使用)
+// 日志级别字符串（用于 logcat 输出）
 static const char* get_level_string(int level) {
     switch (level) {
         case 0: return "VERBOSE";
@@ -46,7 +45,6 @@ static const char* get_level_string(int level) {
         default: return "UNKNOWN";
     }
 }
-#endif
 
 // FFI 函数前置声明
 extern "C" void lz_logger_ffi_set_handle(lz_logger_handle_t handle);
@@ -213,7 +211,6 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
         LOGE("Write failed: %s", lz_logger_error_string(ret));
     }
     
-
 #ifdef DEBUG
     // Debug 模式下同步输出到 logcat
     const char* levelStr = get_level_string(level);
@@ -393,11 +390,7 @@ void lz_logger_ffi(int level, const char* tag, const char* function, const char*
         LOGE("FFI write failed: %s", lz_logger_error_string(ret));
     }
     
-#ifdef DEBUG
-    // Debug 模式下同步输出到 logcat
-    const char* levelStr = get_level_string(level);
-    __android_log_print(ANDROID_LOG_INFO, levelStr, "%s", fullMessage);
-#endif
+    // 注意：不再输出到 logcat，Dart 层会在 debug 模式用 print() 输出到控制台
 }
 
 // ============================================================================

@@ -2,6 +2,7 @@ import 'dart:ffi' as ffi;
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
 
 /// Symbolic name of the bundled dynamic library.
 const String _libName = 'lz_logger';
@@ -58,6 +59,13 @@ void lzLog({
   String function = '',
   required String message,
 }) {
+  // Debug 模式下输出到控制台（可在 VSCode Debug Console 看到）
+  if (kDebugMode) {
+    final levelName = _getLevelName(level);
+    final funcInfo = function.isNotEmpty ? ' [$function]' : '';
+    print('[$levelName]$funcInfo [$tag] $message');
+  }
+
   final ffi.Pointer<ffi.Char> tagPtr = tag.toNativeUtf8().cast();
   final ffi.Pointer<ffi.Char> functionPtr = function.toNativeUtf8().cast();
   final ffi.Pointer<ffi.Char> messagePtr = message.toNativeUtf8().cast();
@@ -68,6 +76,26 @@ void lzLog({
     calloc.free(tagPtr);
     calloc.free(functionPtr);
     calloc.free(messagePtr);
+  }
+}
+
+/// 获取日志级别名称
+String _getLevelName(int level) {
+  switch (level) {
+    case LzLogLevel.verbose:
+      return 'V';
+    case LzLogLevel.debug:
+      return 'D';
+    case LzLogLevel.info:
+      return 'I';
+    case LzLogLevel.warn:
+      return 'W';
+    case LzLogLevel.error:
+      return 'E';
+    case LzLogLevel.fatal:
+      return 'F';
+    default:
+      return '?';
   }
 }
 
