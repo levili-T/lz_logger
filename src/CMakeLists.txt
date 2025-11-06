@@ -9,10 +9,6 @@ add_library(lz_logger SHARED
   "lz_logger.c"
 )
 
-if (ANDROID)
-  target_sources(lz_logger PRIVATE "lz_logger_android.c")
-endif()
-
 set_target_properties(lz_logger PROPERTIES
   PUBLIC_HEADER lz_logger.h
   OUTPUT_NAME "lz_logger"
