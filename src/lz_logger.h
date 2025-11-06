@@ -34,6 +34,7 @@ typedef enum {
     LZ_LOG_ERROR_MMAP_FAILED = -9,        // mmap映射失败
     LZ_LOG_ERROR_MUNMAP_FAILED = -10,     // munmap解映射失败
     LZ_LOG_ERROR_FILE_SIZE_EXCEED = -11,  // 文件大小超限
+    LZ_LOG_ERROR_INVALID_MMAP = -12,      // mmap映射无效
     LZ_LOG_ERROR_DIR_ACCESS = -13,        // 目录访问失败
     LZ_LOG_ERROR_HANDLE_CLOSED = -14,     // 句柄已关闭
     LZ_LOG_ERROR_FILE_SWITCH = -15,       // 文件切换失败

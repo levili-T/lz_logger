@@ -660,6 +660,7 @@ const char* lz_logger_error_string(lz_log_error_t error) {
         case LZ_LOG_ERROR_MMAP_FAILED: return "Mmap failed";
         case LZ_LOG_ERROR_MUNMAP_FAILED: return "Munmap failed";
         case LZ_LOG_ERROR_FILE_SIZE_EXCEED: return "File size exceeded";
+        case LZ_LOG_ERROR_INVALID_MMAP: return "Invalid mmap pointer";
         case LZ_LOG_ERROR_DIR_ACCESS: return "Directory access failed";
         case LZ_LOG_ERROR_HANDLE_CLOSED: return "Handle closed";
         case LZ_LOG_ERROR_FILE_SWITCH: return "File switch failed";
@@ -883,7 +884,7 @@ lz_log_error_t lz_logger_write(lz_logger_handle_t handle,
         // 检查 mmap 有效性（防御性编程）
         if (ctx->mmap_ptr == NULL || ctx->mmap_ptr == MAP_FAILED) {
             LZ_DEBUG_LOG("Write failed: invalid mmap pointer");
-            ret = LZ_LOG_ERROR_INVALID_HANDLE;
+            ret = LZ_LOG_ERROR_INVALID_MMAP;
             break;
         }
         
@@ -972,7 +973,7 @@ lz_log_error_t lz_logger_flush(lz_logger_handle_t handle) {
         }
         
         if (ctx->mmap_ptr == NULL || ctx->mmap_ptr == MAP_FAILED) {
-            return LZ_LOG_ERROR_INVALID_HANDLE;
+            return LZ_LOG_ERROR_INVALID_MMAP;
         }
         
         // 使用 MS_SYNC 同步到磁盘
@@ -1229,7 +1230,7 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
         
         // 检查 mmap 是否有效
         if (ctx->mmap_ptr == NULL || ctx->mmap_ptr == MAP_FAILED) {
-            ret = LZ_LOG_ERROR_INVALID_HANDLE;
+            ret = LZ_LOG_ERROR_INVALID_MMAP;
             break;
         }
         
