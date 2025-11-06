@@ -27,11 +27,20 @@ object LzLogger : DefaultLifecycleObserver {
     const val FATAL = 5
 
     private var handle: Long = 0
-    private var logDir: String? = null
     private var isInitialized = false
     private var currentLevel = INFO  // 默认 Info 级别
     private var lastInnerError = 0
     private var lastSysErrno = 0
+
+    /**
+     * 获取日志目录路径
+     * @return 日志目录路径，未初始化返回 null
+     */
+    @JvmStatic
+    val logDir: String?
+        get() = _logDir
+    
+    private var _logDir: String? = null
 
     init {
         System.loadLibrary("lz_logger")
@@ -101,7 +110,7 @@ object LzLogger : DefaultLifecycleObserver {
             return false
         }
 
-        logDir = logDirPath
+        _logDir = logDirPath
         isInitialized = true
 
         // 设置 FFI 全局 handle 和日志级别 (供 Dart FFI 使用)
@@ -233,11 +242,11 @@ object LzLogger : DefaultLifecycleObserver {
     @JvmStatic
     fun cleanupExpiredLogs(days: Int): Boolean {
         // 无需加锁 - 删除过期文件不影响当前文件的并发写入
-        if (logDir.isNullOrEmpty() || days < 0) {
+        if (_logDir.isNullOrEmpty() || days < 0) {
             return false
         }
 
-        val success = nativeCleanupExpiredLogs(logDir!!, days)
+        val success = nativeCleanupExpiredLogs(_logDir!!, days)
         if (!success && isInitialized) {
             log(ERROR, "LzLogger", "Cleanup failed")
         }

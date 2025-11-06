@@ -90,6 +90,12 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
  */
 - (int32_t)lastSysErrno;
 
+/**
+ * 获取日志目录路径
+ * @return 日志目录路径，未初始化返回 nil
+ */
+@property (nonatomic, copy, readonly, nullable) NSString *logDir;
+
 @end
 
 // MARK: - 便捷日志宏
