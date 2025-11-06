@@ -60,10 +60,11 @@ void lzLog({
   required String message,
 }) {
   // Debug 模式下输出到控制台（可在 VSCode Debug Console 看到）
+  // 使用 debugPrint 而非 print，避免长日志被截断和高频日志导致卡顿
   if (kDebugMode) {
     final levelName = _getLevelName(level);
     final funcInfo = function.isNotEmpty ? ' [$function]' : '';
-    print('[$levelName]$funcInfo [$tag] $message');
+    debugPrint('[$levelName]$funcInfo [$tag] $message');
   }
 
   final ffi.Pointer<ffi.Char> tagPtr = tag.toNativeUtf8().cast();
