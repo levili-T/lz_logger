@@ -266,13 +266,13 @@ object LzLogger : DefaultLifecycleObserver {
     fun getLastSysErrno(): Int = lastSysErrno
 
     // ========================================================================
-    // 生命周期监听 - 进程退出时自动关闭日志
+    // 生命周期监听 - 进程终止时自动关闭日志
     // ========================================================================
 
-    override fun onStop(owner: LifecycleOwner) {
-        super.onStop(owner)
+    override fun onDestroy(owner: LifecycleOwner) {
+        super.onDestroy(owner)
         if (isInitialized) {
-            log(INFO, "LzLogger", "Process stopping, closing logger")
+            log(INFO, "LzLogger", "Process terminating, closing logger")
             close()
         }
     }
