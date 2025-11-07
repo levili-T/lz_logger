@@ -31,7 +31,7 @@ android {
 
     // Bumping the plugin compileSdk version requires all clients of this plugin
     // to bump the version in their app.
-    compileSdk = 36
+    compileSdk = 35
 
     // 使用父项目的 NDK 版本 (无需 OpenSSL，使用 Java Crypto API)
     ndkVersion = android.ndkVersion
@@ -61,7 +61,7 @@ android {
     }
 
     defaultConfig {
-        minSdk = 24
+        minSdk = 21
     }
 
     buildTypes {
