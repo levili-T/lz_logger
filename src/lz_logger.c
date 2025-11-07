@@ -480,6 +480,9 @@ lz_log_error_t lz_logger_set_max_file_size(uint32_t size) {
             return LZ_LOG_ERROR_INVALID_PARAM;
         }
         
+        // 设置全局文件大小
+        // 注意：运行时修改只影响新创建的文件
+        // 已有文件的大小存储在footer中，不受影响
         atomic_store(&g_max_file_size, size);
         
     } while (0);
