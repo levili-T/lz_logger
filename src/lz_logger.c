@@ -123,7 +123,7 @@ static atomic_uint_least32_t g_max_file_size = LZ_LOG_DEFAULT_FILE_SIZE;
  * @param offset_ptr 指向 used_size 的指针
  * @return 文件大小
  */
-static uint32_t get_file_size_from_offset_ptr(atomic_uint_least32_t *offset_ptr) {
+static inline uint32_t get_file_size_from_offset_ptr(atomic_uint_least32_t *offset_ptr) {
     // offset_ptr 指向 used_size（footer最后4字节）
     // file_size 在 used_size 前面4字节
     uint32_t *file_size_ptr = (uint32_t *)offset_ptr - 1;
@@ -135,7 +135,7 @@ static uint32_t get_file_size_from_offset_ptr(atomic_uint_least32_t *offset_ptr)
  * @param offset_ptr 指向 used_size 的指针
  * @return mmap 基地址
  */
-static void* get_mmap_base_from_offset_ptr(atomic_uint_least32_t *offset_ptr) {
+static inline void* get_mmap_base_from_offset_ptr(atomic_uint_least32_t *offset_ptr) {
     uint32_t file_size = get_file_size_from_offset_ptr(offset_ptr);
     // offset_ptr 指向 footer 最后4字节 = mmap_base + file_size - 4
     // 所以 mmap_base = offset_ptr - file_size + 4
