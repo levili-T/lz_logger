@@ -1003,23 +1003,25 @@ lz_log_error_t lz_logger_close(lz_logger_handle_t handle) {
         
         LZ_DEBUG_LOG("Closing logger: file=%s", ctx->current_file_path);
         
-        // 标记为已关闭
+        // 标记为已关闭（阻止新的写入）
         atomic_store(&ctx->is_closed, true);
         
-        // 刷新当前 mmap
+        // 刷新当前 mmap（同步数据到磁盘）
         if (ctx->mmap_ptr != NULL && ctx->mmap_ptr != MAP_FAILED) {
             // 读取最终偏移量
             atomic_uint_least32_t *offset_ptr = atomic_load(&ctx->cur_offset_ptr);
             uint32_t final_offset = atomic_load(offset_ptr);
             LZ_DEBUG_LOG("Flushing mmap: final_offset=%u", final_offset);
             msync(ctx->mmap_ptr, ctx->file_size, MS_SYNC);
-            munmap(ctx->mmap_ptr, ctx->file_size);
+            // 注意：不执行 munmap，让操作系统在进程退出时自动清理
+            // 这样避免了 close 时可能还有活跃写入的竞态问题
         }
         
-        // 清理旧 mmap（如果存在）
+        // 刷新旧 mmap（如果存在）
         if (ctx->old_mmap_ptr != NULL && ctx->old_mmap_ptr != MAP_FAILED) {
-            LZ_DEBUG_LOG("Unmapping old mmap: size=%u", ctx->old_file_size);
-            munmap(ctx->old_mmap_ptr, ctx->old_file_size);
+            LZ_DEBUG_LOG("Flushing old mmap: size=%u", ctx->old_file_size);
+            msync(ctx->old_mmap_ptr, ctx->old_file_size, MS_SYNC);
+            // 同样不执行 munmap
         }
         
         // 清理加密上下文
