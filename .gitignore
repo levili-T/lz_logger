@@ -31,3 +31,12 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 /build/
 /coverage/
+
+# C/C++ compiled files
+*.o
+*.so
+*.dylib
+*.a
+performance_test
+test_multithread_switch
+verify_log_sequence
