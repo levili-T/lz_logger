@@ -68,8 +68,8 @@ typedef struct lz_logger_context_t* lz_logger_handle_t;
 /** 加密盐大小 */
 #define LZ_LOG_SALT_SIZE 16
 
-/** 文件尾部元数据大小（盐16字节 + 魔数4字节 + 已用大小4字节） */
-#define LZ_LOG_FOOTER_SIZE 24
+/** 文件尾部元数据大小（盐16字节 + 魔数4字节 + 文件大小4字节 + 已用大小4字节） */
+#define LZ_LOG_FOOTER_SIZE 28
 
 // ============================================================================
 // Public APIs

@@ -27,7 +27,7 @@ CRYPTO_BLOCK_SIZE = 16
 CRYPTO_SALT_SIZE = 16
 PBKDF2_ITERATIONS = 10000
 MAGIC_ENDX = 0x456E6478
-FOOTER_SIZE = 24  # 盐16字节 + 魔数4字节 + 已用大小4字节
+FOOTER_SIZE = 28  # 盐16字节 + 魔数4字节 + 文件大小4字节 + 已用大小4字节
 
 
 def derive_key(password: str, salt: bytes) -> bytes:
@@ -75,10 +75,10 @@ def decrypt_aes_ctr(key: bytes, data: bytes, offset: int = 0) -> bytes:
 def read_log_file(file_path: str):
     """
     读取日志文件
-    文件格式: [数据区域][盐16字节][魔数4字节][已用大小4字节]
+    文件格式: [数据区域][盐16字节][魔数4字节][文件大小4字节][已用大小4字节]
     
     Returns:
-        (salt, encrypted_data, used_size)
+        (salt, encrypted_data, used_size, file_size_from_footer)
     """
     with open(file_path, 'rb') as f:
         # 获取文件大小
@@ -88,17 +88,21 @@ def read_log_file(file_path: str):
         if file_size < FOOTER_SIZE:
             raise ValueError("文件太小,无法读取footer")
         
-        # 读取 footer: [盐16字节][魔数4字节][已用大小4字节]
+        # 读取 footer: [盐16字节][魔数4字节][文件大小4字节][已用大小4字节]
         f.seek(file_size - FOOTER_SIZE)
         footer = f.read(FOOTER_SIZE)
         
         # 解析footer
         salt = footer[:CRYPTO_SALT_SIZE]
-        magic, used_size = struct.unpack('<II', footer[CRYPTO_SALT_SIZE:])
+        magic, footer_file_size, used_size = struct.unpack('<III', footer[CRYPTO_SALT_SIZE:])
         
         if magic != MAGIC_ENDX:
             print(f"警告: 文件尾部魔数不匹配 (期望 0x{MAGIC_ENDX:08X}, 实际 0x{magic:08X})")
             # 不报错,尝试继续
+        
+        # 验证footer中的文件大小
+        if footer_file_size != file_size:
+            print(f"警告: footer中文件大小({footer_file_size})与实际文件大小({file_size})不匹配")
         
         # 计算数据区域大小
         data_size = file_size - FOOTER_SIZE
@@ -111,7 +115,7 @@ def read_log_file(file_path: str):
         if 0 < used_size < len(encrypted_data):
             encrypted_data = encrypted_data[:used_size]
         
-        return salt, encrypted_data, used_size
+        return salt, encrypted_data, used_size, footer_file_size
 
 
 def decrypt_log_file(input_file: str, output_file: str, password: str):
@@ -119,12 +123,12 @@ def decrypt_log_file(input_file: str, output_file: str, password: str):
     print(f"正在读取文件: {input_file}")
     
     try:
-        salt, encrypted_data, used_size = read_log_file(input_file)
+        salt, encrypted_data, used_size, footer_file_size = read_log_file(input_file)
     except Exception as e:
         print(f"错误: 读取文件失败 - {e}")
         return False
     
-    print(f"文件大小: {len(encrypted_data)} 字节 (已使用: {used_size} 字节)")
+    print(f"文件大小: {len(encrypted_data)} 字节 (已使用: {used_size} 字节, footer文件大小: {footer_file_size} 字节)")
     print(f"盐值: {salt.hex()}")
     
     # 派生密钥
