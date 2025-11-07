@@ -91,13 +91,9 @@ typedef struct lz_logger_context_t {
     char current_file_path[768];          // 当前日志文件路径
     
     int fd;                               // 文件描述符（仅用于初始化，可以提前关闭）
-    void *mmap_ptr;                       // 当前 mmap 映射指针（仅用于清理，写入时通过 cur_offset_ptr 反推）
-    uint32_t file_size;                   // 文件总大小
-    
-    void *old_mmap_ptr;                   // 旧 mmap 指针（延迟销毁）
-    uint32_t old_file_size;               // 旧文件大小
     
     _Atomic(atomic_uint_least32_t *) cur_offset_ptr; // 原子指针：指向当前 offset（footer中的used_size字段）
+    _Atomic(atomic_uint_least32_t *) old_offset_ptr; // 旧文件的offset指针（延迟销毁）
     
     pthread_mutex_t switch_mutex;         // 文件切换互斥锁
     
@@ -121,6 +117,30 @@ static atomic_uint_least32_t g_max_file_size = LZ_LOG_DEFAULT_FILE_SIZE;
 // ============================================================================
 // Utility Functions
 // ============================================================================
+
+/**
+ * 从 offset_ptr 读取文件大小
+ * @param offset_ptr 指向 used_size 的指针
+ * @return 文件大小
+ */
+static uint32_t get_file_size_from_offset_ptr(atomic_uint_least32_t *offset_ptr) {
+    // offset_ptr 指向 used_size（footer最后4字节）
+    // file_size 在 used_size 前面4字节
+    uint32_t *file_size_ptr = (uint32_t *)offset_ptr - 1;
+    return *file_size_ptr;
+}
+
+/**
+ * 从 offset_ptr 反推 mmap_base
+ * @param offset_ptr 指向 used_size 的指针
+ * @return mmap 基地址
+ */
+static void* get_mmap_base_from_offset_ptr(atomic_uint_least32_t *offset_ptr) {
+    uint32_t file_size = get_file_size_from_offset_ptr(offset_ptr);
+    // offset_ptr 指向 footer 最后4字节 = mmap_base + file_size - 4
+    // 所以 mmap_base = offset_ptr - file_size + 4
+    return (uint8_t *)offset_ptr - file_size + sizeof(uint32_t);
+}
 
 /**
  * 获取当前日期字符串
@@ -253,7 +273,7 @@ static lz_log_error_t create_and_extend_file(const char *file_path,
             break;
         }
         
-        // 写入文件尾部元数据：[盐16字节][ENDX魔数4字节][已用大小4字节]
+        // 写入文件尾部元数据：[盐16字节][ENDX魔数4字节][文件大小4字节][已用大小4字节]
         off_t footer_offset = file_size - LZ_LOG_FOOTER_SIZE;
         
         if (lseek(fd, footer_offset, SEEK_SET) != footer_offset) {
@@ -279,6 +299,12 @@ static lz_log_error_t create_and_extend_file(const char *file_path,
             break;
         }
         
+        // 写入文件大小
+        if (write(fd, &file_size, sizeof(file_size)) != sizeof(file_size)) {
+            ret = LZ_LOG_ERROR_FILE_WRITE;
+            break;
+        }
+        
         // 写入已用大小(初始为0)
         uint32_t used_size = 0;
         if (write(fd, &used_size, sizeof(used_size)) != sizeof(used_size)) {
@@ -286,7 +312,8 @@ static lz_log_error_t create_and_extend_file(const char *file_path,
             break;
         }
         
-        LZ_DEBUG_LOG("Wrote footer: salt + magic + used_size to offset %lld", (long long)footer_offset);
+        LZ_DEBUG_LOG("Wrote footer: salt + magic + file_size(%u) + used_size to offset %lld", 
+                     file_size, (long long)footer_offset);
         
         // 同步到磁盘（防止 SIGBUS）
         if (fsync(fd) != 0) {
@@ -342,7 +369,7 @@ static lz_log_error_t open_existing_file(const char *file_path,
             break;
         }
         
-        // 读取文件尾部 footer: [盐16字节][魔数4字节][已用大小4字节]
+        // 读取文件尾部 footer: [盐16字节][魔数4字节][文件大小4字节][已用大小4字节]
         off_t footer_offset = st.st_size - LZ_LOG_FOOTER_SIZE;
         if (lseek(fd, footer_offset, SEEK_SET) != footer_offset) {
             ret = LZ_LOG_ERROR_FILE_OPEN;
@@ -366,6 +393,21 @@ static lz_log_error_t open_existing_file(const char *file_path,
         // 验证魔数
         if (magic != LZ_LOG_MAGIC_ENDX) {
             LZ_DEBUG_LOG("Invalid magic number: 0x%x", magic);
+            ret = LZ_LOG_ERROR_FILE_OPEN;
+            break;
+        }
+        
+        // 读取文件大小
+        uint32_t file_size_from_footer = 0;
+        if (read(fd, &file_size_from_footer, sizeof(file_size_from_footer)) != sizeof(file_size_from_footer)) {
+            ret = LZ_LOG_ERROR_FILE_OPEN;
+            break;
+        }
+        
+        // 验证文件大小一致性
+        if (file_size_from_footer != (uint32_t)st.st_size) {
+            LZ_DEBUG_LOG("File size mismatch: footer=%u, actual=%lld", 
+                         file_size_from_footer, (long long)st.st_size);
             ret = LZ_LOG_ERROR_FILE_OPEN;
             break;
         }
@@ -399,13 +441,11 @@ static lz_log_error_t open_existing_file(const char *file_path,
  * 执行 mmap 映射
  * @param fd 文件描述符
  * @param file_size 文件大小
- * @param out_mmap_ptr 输出映射指针
- * @param out_offset_ptr 输出偏移量指针（指向文件尾部-4字节）
+ * @param out_offset_ptr 输出偏移量指针（指向footer中的used_size字段）
  * @return 错误码
  */
 static lz_log_error_t do_mmap_mapping(int fd,
                                         uint32_t file_size,
-                                        void **out_mmap_ptr,
                                         atomic_uint_least32_t **out_offset_ptr) {
     void *ptr = NULL;
     lz_log_error_t ret = LZ_LOG_SUCCESS;
@@ -418,11 +458,10 @@ static lz_log_error_t do_mmap_mapping(int fd,
             break;
         }
         
-        // 计算偏移量指针位置：文件尾部倒数第4字节
+        // 计算偏移量指针位置：footer 最后4字节（used_size字段）
         atomic_uint_least32_t *offset_ptr = 
             (atomic_uint_least32_t *)((uint8_t *)ptr + file_size - sizeof(uint32_t));
         
-        *out_mmap_ptr = ptr;
         *out_offset_ptr = offset_ptr;
         
     } while (0);
@@ -481,8 +520,7 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         
         // 初始化字段（calloc 已经清零，这里设置特殊值）
         ctx->fd = -1;
-        ctx->mmap_ptr = MAP_FAILED;
-        ctx->old_mmap_ptr = NULL;
+        atomic_store(&ctx->old_offset_ptr, NULL);
         
         // 初始化互斥锁
         if (pthread_mutex_init(&ctx->switch_mutex, NULL) != 0) {
@@ -501,12 +539,10 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         }
         
         ctx->max_file_size = atomic_load(&g_max_file_size);
-        ctx->file_size = ctx->max_file_size;
-        ctx->old_file_size = 0;
         atomic_store(&ctx->is_closed, false);
         
-        LZ_DEBUG_LOG("Context initialized: log_dir=%s, file_size=%u, encrypted=%d", 
-                     log_dir, ctx->file_size, ctx->crypto_ctx.is_initialized);
+        LZ_DEBUG_LOG("Context initialized: log_dir=%s, max_file_size=%u, encrypted=%d", 
+                     log_dir, ctx->max_file_size, ctx->crypto_ctx.is_initialized);
         
         // 获取当前日期
         char date_str[16];
@@ -538,7 +574,7 @@ lz_log_error_t lz_logger_open(const char *log_dir,
             
             // 如果文件已满，创建新文件
             if (ret == LZ_LOG_SUCCESS && 
-                used_size >= ctx->file_size - LZ_LOG_FOOTER_SIZE) {
+                used_size >= ctx->max_file_size - LZ_LOG_FOOTER_SIZE) {
                 close(fd);
                 fd = -1;
                 file_num++;
@@ -551,7 +587,7 @@ lz_log_error_t lz_logger_open(const char *log_dir,
             build_log_file_path(log_dir, date_str, file_num, 
                                 ctx->current_file_path, sizeof(ctx->current_file_path));
             
-            ret = create_and_extend_file(ctx->current_file_path, ctx->file_size, &fd, NULL);
+            ret = create_and_extend_file(ctx->current_file_path, ctx->max_file_size, &fd, NULL);
             if (ret != LZ_LOG_SUCCESS) {
                 sys_errno = errno;
                 break;
@@ -564,8 +600,7 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         
         // 执行 mmap 映射
         atomic_uint_least32_t *offset_ptr = NULL;
-        ret = do_mmap_mapping(fd, ctx->file_size, 
-                               &ctx->mmap_ptr, &offset_ptr);
+        ret = do_mmap_mapping(fd, ctx->max_file_size, &offset_ptr);
         if (ret != LZ_LOG_SUCCESS) {
             sys_errno = errno;
             LZ_DEBUG_LOG("Failed to mmap: %d, errno=%d", ret, sys_errno);
@@ -575,12 +610,15 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         // 原子初始化 cur_offset_ptr
         atomic_store(&ctx->cur_offset_ptr, offset_ptr);
         
-        LZ_DEBUG_LOG("mmap succeeded: ptr=%p, file_size=%u", ctx->mmap_ptr, ctx->file_size);
+        uint32_t file_size = get_file_size_from_offset_ptr(offset_ptr);
+        void *mmap_base = get_mmap_base_from_offset_ptr(offset_ptr);
+        
+        LZ_DEBUG_LOG("mmap succeeded: mmap_base=%p, file_size=%u", mmap_base, file_size);
         
         // 初始化加密上下文(如果提供了密钥)
         if (ctx->encrypt_key[0] != '\0') {
             // 设置salt_ptr指向mmap中footer的盐区域
-            ctx->crypto_ctx.salt_ptr = (uint8_t *)ctx->mmap_ptr + ctx->file_size - LZ_LOG_FOOTER_SIZE;
+            ctx->crypto_ctx.salt_ptr = (uint8_t *)mmap_base + file_size - LZ_LOG_FOOTER_SIZE;
             
             // 如果是新文件,需要生成新盐
             if (used_size == 0) {
@@ -591,7 +629,7 @@ lz_log_error_t lz_logger_open(const char *log_dir,
                     break;
                 }
                 memcpy(ctx->crypto_ctx.salt_ptr, temp_salt, LZ_LOG_SALT_SIZE);
-                msync(ctx->mmap_ptr, ctx->file_size, MS_SYNC);
+                msync(mmap_base, file_size, MS_SYNC);
                 LZ_DEBUG_LOG("Generated new salt for file");
             }
             
@@ -611,7 +649,7 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         if (file_offset != used_size) {
             LZ_DEBUG_LOG("Sync offset: file=%u, expected=%u", file_offset, used_size);
             atomic_store(current_offset_ptr, used_size);
-            msync(ctx->mmap_ptr, ctx->file_size, MS_SYNC);
+            msync(mmap_base, file_size, MS_SYNC);
         }
         
         LZ_DEBUG_LOG("Logger opened successfully: file=%s, offset=%u", 
@@ -626,8 +664,12 @@ lz_log_error_t lz_logger_open(const char *log_dir,
     if (ret != LZ_LOG_SUCCESS) {
         LZ_DEBUG_LOG("Open failed with error: %d", ret);
         if (ctx != NULL) {
-            if (ctx->mmap_ptr != NULL && ctx->mmap_ptr != MAP_FAILED) {
-                munmap(ctx->mmap_ptr, ctx->file_size);
+            // 如果已经创建了 mmap，需要清理
+            atomic_uint_least32_t *offset_ptr = atomic_load(&ctx->cur_offset_ptr);
+            if (offset_ptr != NULL) {
+                void *mmap_base = get_mmap_base_from_offset_ptr(offset_ptr);
+                uint32_t file_size = get_file_size_from_offset_ptr(offset_ptr);
+                munmap(mmap_base, file_size);
             }
             if (ctx->fd >= 0) {
                 close(ctx->fd);
@@ -713,20 +755,21 @@ static lz_log_error_t encrypt_data(lz_logger_context_t *ctx,
 }
 
 /**
- * 添加旧 mmap 到延迟销毁链表
+ * 添加旧 offset_ptr 到延迟销毁
  * @param ctx 日志上下文
- * @param old_mmap_ptr 旧的 mmap 指针
- * @param file_size 文件大小
+ * @param old_offset_ptr 旧的 offset_ptr 指针
  */
-static void add_old_mmap(lz_logger_context_t *ctx, void *old_mmap_ptr, uint32_t file_size) {
-    // 清理旧的mmap（如果存在）
-    if (ctx->old_mmap_ptr != NULL && ctx->old_mmap_ptr != MAP_FAILED) {
-        munmap(ctx->old_mmap_ptr, ctx->old_file_size);
+static void add_old_offset_ptr(lz_logger_context_t *ctx, atomic_uint_least32_t *old_offset_ptr) {
+    // 清理旧的offset_ptr（如果存在）
+    atomic_uint_least32_t *prev_old_offset_ptr = atomic_load(&ctx->old_offset_ptr);
+    if (prev_old_offset_ptr != NULL) {
+        void *old_mmap_base = get_mmap_base_from_offset_ptr(prev_old_offset_ptr);
+        uint32_t old_file_size = get_file_size_from_offset_ptr(prev_old_offset_ptr);
+        munmap(old_mmap_base, old_file_size);
     }
     
-    // 保存新的old mmap指针
-    ctx->old_mmap_ptr = old_mmap_ptr;
-    ctx->old_file_size = file_size;
+    // 保存新的old offset_ptr
+    atomic_store(&ctx->old_offset_ptr, old_offset_ptr);
 }
 
 /**
@@ -738,10 +781,10 @@ static void add_old_mmap(lz_logger_context_t *ctx, void *old_mmap_ptr, uint32_t 
 static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
     lz_log_error_t ret = LZ_LOG_SUCCESS;
     int new_fd = -1;
-    void *new_mmap_ptr = NULL;
     atomic_uint_least32_t *new_offset_ptr = NULL;
-    void *old_mmap_ptr = ctx->mmap_ptr;
-    uint32_t old_file_size = ctx->file_size;
+    
+    // 保存旧的 offset_ptr（用于延迟清理）
+    atomic_uint_least32_t *old_offset_ptr = atomic_load(&ctx->cur_offset_ptr);
     
     LZ_DEBUG_LOG("Starting file switch, old_file=%s", ctx->current_file_path);
     
@@ -782,14 +825,13 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
         build_log_file_path(ctx->log_dir, date_str, new_file_num, 
                             new_file_path, sizeof(new_file_path));
         
-        ret = create_and_extend_file(new_file_path, ctx->file_size, &new_fd, NULL);
+        ret = create_and_extend_file(new_file_path, ctx->max_file_size, &new_fd, NULL);
         if (ret != LZ_LOG_SUCCESS) {
             break;
         }
         
         // 执行新的 mmap 映射
-        ret = do_mmap_mapping(new_fd, ctx->file_size, 
-                               &new_mmap_ptr, &new_offset_ptr);
+        ret = do_mmap_mapping(new_fd, ctx->max_file_size, &new_offset_ptr);
         if (ret != LZ_LOG_SUCCESS) {
             break;
         }
@@ -803,7 +845,9 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
         // 如果启用加密，为新文件复制盐值（保持进程内盐值不变）
         if (ctx->encrypt_key[0] != '\0' && ctx->crypto_ctx.salt_ptr != NULL) {
             // 设置salt_ptr指向新mmap的footer
-            uint8_t *new_salt_ptr = (uint8_t *)new_mmap_ptr + ctx->file_size - LZ_LOG_FOOTER_SIZE;
+            void *new_mmap_base = get_mmap_base_from_offset_ptr(new_offset_ptr);
+            uint32_t new_file_size = get_file_size_from_offset_ptr(new_offset_ptr);
+            uint8_t *new_salt_ptr = (uint8_t *)new_mmap_base + new_file_size - LZ_LOG_FOOTER_SIZE;
             
             // 复制现有盐值到新文件（保持盐值一致性）
             memcpy(new_salt_ptr, ctx->crypto_ctx.salt_ptr, LZ_LOG_SALT_SIZE);
@@ -821,14 +865,13 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
         // 先替换指针，配合延迟 munmap，完美解决一致性问题
         atomic_store(&ctx->cur_offset_ptr, new_offset_ptr);
         
-        // 更新 mmap_ptr（仅用于清理，写入不依赖此字段）
-        ctx->mmap_ptr = new_mmap_ptr;
+        // 更新当前文件路径
         strncpy(ctx->current_file_path, new_file_path, sizeof(ctx->current_file_path) - 1);
         
-        LZ_DEBUG_LOG("Pointer switch completed, storing old mmap for deferred cleanup");
+        LZ_DEBUG_LOG("Pointer switch completed, storing old offset_ptr for deferred cleanup");
         
-        // 将旧 mmap 加入延迟销毁（不立即 munmap，避免竞态）
-        add_old_mmap(ctx, old_mmap_ptr, old_file_size);
+        // 将旧 offset_ptr 加入延迟销毁（不立即 munmap，避免竞态）
+        add_old_offset_ptr(ctx, old_offset_ptr);
         
         LZ_DEBUG_LOG("File switch completed successfully");
         
@@ -836,8 +879,10 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
     
     // 错误处理：清理资源
     if (ret != LZ_LOG_SUCCESS) {
-        if (new_mmap_ptr != NULL && new_mmap_ptr != MAP_FAILED) {
-            munmap(new_mmap_ptr, ctx->file_size);
+        if (new_offset_ptr != NULL) {
+            void *new_mmap_base = get_mmap_base_from_offset_ptr(new_offset_ptr);
+            uint32_t new_file_size = get_file_size_from_offset_ptr(new_offset_ptr);
+            munmap(new_mmap_base, new_file_size);
         }
         if (new_fd >= 0) {
             close(new_fd);
@@ -845,9 +890,7 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
     }
     
     return ret;
-}
-
-lz_log_error_t lz_logger_write(lz_logger_handle_t handle,
+}lz_log_error_t lz_logger_write(lz_logger_handle_t handle,
                                  const char *message,
                                  uint32_t len) {
     lz_log_error_t ret = LZ_LOG_SUCCESS;
@@ -866,7 +909,10 @@ lz_log_error_t lz_logger_write(lz_logger_handle_t handle,
         }
         
         // 检查日志长度是否超过文件可用空间（超过则直接丢弃）
-        uint32_t max_data_size = ctx->file_size - LZ_LOG_FOOTER_SIZE;
+        // 先获取当前文件大小来计算可用空间
+        atomic_uint_least32_t *offset_ptr_for_check = atomic_load(&ctx->cur_offset_ptr);
+        uint32_t current_file_size = get_file_size_from_offset_ptr(offset_ptr_for_check);
+        uint32_t max_data_size = current_file_size - LZ_LOG_FOOTER_SIZE;
         if (len > max_data_size) {
             LZ_DEBUG_LOG("Drop log: len=%u exceeds max_data_size=%u", len, max_data_size);
             ret = LZ_LOG_ERROR_FILE_SIZE_EXCEED;
@@ -880,9 +926,10 @@ lz_log_error_t lz_logger_write(lz_logger_handle_t handle,
             break;
         }
         
-        // 检查 mmap 有效性（防御性编程）
-        if (ctx->mmap_ptr == NULL || ctx->mmap_ptr == MAP_FAILED) {
-            LZ_DEBUG_LOG("Write failed: invalid mmap pointer");
+        // 检查 cur_offset_ptr 有效性（防御性编程）
+        atomic_uint_least32_t *current_offset_ptr = atomic_load(&ctx->cur_offset_ptr);
+        if (current_offset_ptr == NULL) {
+            LZ_DEBUG_LOG("Write failed: invalid offset pointer");
             ret = LZ_LOG_ERROR_INVALID_MMAP;
             break;
         }
@@ -895,7 +942,8 @@ lz_log_error_t lz_logger_write(lz_logger_handle_t handle,
             
             // 读取当前偏移量（不修改）
             uint32_t current_offset = atomic_load(offset_ptr);
-            uint32_t max_data_size = ctx->file_size - LZ_LOG_FOOTER_SIZE;
+            uint32_t file_size = get_file_size_from_offset_ptr(offset_ptr);
+            uint32_t max_data_size = file_size - LZ_LOG_FOOTER_SIZE;
             
             // 检查是否需要切换文件
             if (current_offset + len > max_data_size) {
@@ -942,10 +990,8 @@ lz_log_error_t lz_logger_write(lz_logger_handle_t handle,
                                               &current_offset, 
                                               new_offset)) {
                 // CAS 成功，已预留空间
-                // 关键：通过 offset_ptr 反推 mmap_ptr
-                // offset_ptr 指向 footer 的最后4字节 = mmap_base + file_size - 4
-                // 所以 mmap_base = offset_ptr - file_size + 4
-                void *mmap_base = (uint8_t *)offset_ptr - ctx->file_size + sizeof(uint32_t);
+                // 关键：通过 offset_ptr 反推 mmap_base（使用辅助函数）
+                void *mmap_base = get_mmap_base_from_offset_ptr(offset_ptr);
                 void *write_ptr = (uint8_t *)mmap_base + current_offset;
                 
                 memcpy(write_ptr, message, len);
@@ -979,12 +1025,16 @@ lz_log_error_t lz_logger_flush(lz_logger_handle_t handle) {
             return LZ_LOG_ERROR_INVALID_HANDLE;
         }
         
-        if (ctx->mmap_ptr == NULL || ctx->mmap_ptr == MAP_FAILED) {
+        atomic_uint_least32_t *offset_ptr = atomic_load(&ctx->cur_offset_ptr);
+        if (offset_ptr == NULL) {
             return LZ_LOG_ERROR_INVALID_MMAP;
         }
         
+        void *mmap_base = get_mmap_base_from_offset_ptr(offset_ptr);
+        uint32_t file_size = get_file_size_from_offset_ptr(offset_ptr);
+        
         // 使用 MS_SYNC 同步到磁盘
-        if (msync(ctx->mmap_ptr, ctx->file_size, MS_SYNC) != 0) {
+        if (msync(mmap_base, file_size, MS_SYNC) != 0) {
             return LZ_LOG_ERROR_FILE_WRITE;
         }
         
@@ -1007,20 +1057,25 @@ lz_log_error_t lz_logger_close(lz_logger_handle_t handle) {
         atomic_store(&ctx->is_closed, true);
         
         // 刷新当前 mmap（同步数据到磁盘）
-        if (ctx->mmap_ptr != NULL && ctx->mmap_ptr != MAP_FAILED) {
+        atomic_uint_least32_t *offset_ptr = atomic_load(&ctx->cur_offset_ptr);
+        if (offset_ptr != NULL) {
             // 读取最终偏移量
-            atomic_uint_least32_t *offset_ptr = atomic_load(&ctx->cur_offset_ptr);
             uint32_t final_offset = atomic_load(offset_ptr);
+            void *mmap_base = get_mmap_base_from_offset_ptr(offset_ptr);
+            uint32_t file_size = get_file_size_from_offset_ptr(offset_ptr);
             LZ_DEBUG_LOG("Flushing mmap: final_offset=%u", final_offset);
-            msync(ctx->mmap_ptr, ctx->file_size, MS_SYNC);
+            msync(mmap_base, file_size, MS_SYNC);
             // 注意：不执行 munmap，让操作系统在进程退出时自动清理
             // 这样避免了 close 时可能还有活跃写入的竞态问题
         }
         
         // 刷新旧 mmap（如果存在）
-        if (ctx->old_mmap_ptr != NULL && ctx->old_mmap_ptr != MAP_FAILED) {
-            LZ_DEBUG_LOG("Flushing old mmap: size=%u", ctx->old_file_size);
-            msync(ctx->old_mmap_ptr, ctx->old_file_size, MS_SYNC);
+        atomic_uint_least32_t *old_offset_ptr = atomic_load(&ctx->old_offset_ptr);
+        if (old_offset_ptr != NULL) {
+            void *old_mmap_base = get_mmap_base_from_offset_ptr(old_offset_ptr);
+            uint32_t old_file_size = get_file_size_from_offset_ptr(old_offset_ptr);
+            LZ_DEBUG_LOG("Flushing old mmap: size=%u", old_file_size);
+            msync(old_mmap_base, old_file_size, MS_SYNC);
             // 同样不执行 munmap
         }
         
@@ -1250,7 +1305,7 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
         }
         
         // 通过 offset_ptr 反推 mmap_base（和 write 路径一致）
-        void *mmap_base = (uint8_t *)offset_ptr - ctx->file_size + sizeof(uint32_t);
+        void *mmap_base = get_mmap_base_from_offset_ptr(offset_ptr);
         
         // 构建导出文件路径
         memset(export_path, 0, sizeof(export_path));
@@ -1288,9 +1343,10 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
             break;
         }
         
-        // 写入footer: [盐16字节][魔数4字节][已用大小4字节]
+        // 写入footer: [盐16字节][魔数4字节][文件大小4字节][已用大小4字节]
         // 从mmap的footer位置读取盐（使用反推的 mmap_base）
-        uint8_t *salt_ptr = (uint8_t *)mmap_base + ctx->file_size - LZ_LOG_FOOTER_SIZE;
+        uint32_t file_size = get_file_size_from_offset_ptr(offset_ptr);
+        uint8_t *salt_ptr = (uint8_t *)mmap_base + file_size - LZ_LOG_FOOTER_SIZE;
         if (write(export_fd, salt_ptr, LZ_LOG_SALT_SIZE) != LZ_LOG_SALT_SIZE) {
             ret = LZ_LOG_ERROR_FILE_WRITE;
             break;
@@ -1299,6 +1355,12 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
         // 写入魔数
         uint32_t magic = LZ_LOG_MAGIC_ENDX;
         if (write(export_fd, &magic, sizeof(magic)) != sizeof(magic)) {
+            ret = LZ_LOG_ERROR_FILE_WRITE;
+            break;
+        }
+        
+        // 写入文件大小
+        if (write(export_fd, &file_size, sizeof(file_size)) != sizeof(file_size)) {
             ret = LZ_LOG_ERROR_FILE_WRITE;
             break;
         }
