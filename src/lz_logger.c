@@ -911,17 +911,6 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
             break;
         }
         
-        // 检查日志长度是否超过文件可用空间（超过则直接丢弃）
-        // 先获取当前文件大小来计算可用空间
-        atomic_uint_least32_t *offset_ptr_for_check = atomic_load(&ctx->cur_offset_ptr);
-        uint32_t current_file_size = get_file_size_from_offset_ptr(offset_ptr_for_check);
-        uint32_t max_data_size = current_file_size - LZ_LOG_FOOTER_SIZE;
-        if (len > max_data_size) {
-            LZ_DEBUG_LOG("Drop log: len=%u exceeds max_data_size=%u", len, max_data_size);
-            ret = LZ_LOG_ERROR_FILE_SIZE_EXCEED;
-            break;
-        }
-        
         // 检查句柄是否已关闭
         if (atomic_load(&ctx->is_closed)) {
             LZ_DEBUG_LOG("Write failed: handle is closed");
@@ -937,16 +926,36 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
             break;
         }
         
+        // 缓存offset_ptr和file_size，减少重复的间接访问（性能优化）
+        atomic_uint_least32_t *cached_offset_ptr = current_offset_ptr;
+        uint32_t cached_file_size = get_file_size_from_offset_ptr(cached_offset_ptr);
+        uint32_t cached_max_data_size = cached_file_size - LZ_LOG_FOOTER_SIZE;
+        
+        // 检查日志长度是否超过文件可用空间（超过则直接丢弃）
+        if (len > cached_max_data_size) {
+            LZ_DEBUG_LOG("Drop log: len=%u exceeds max_data_size=%u", len, cached_max_data_size);
+            ret = LZ_LOG_ERROR_FILE_SIZE_EXCEED;
+            break;
+        }
+        
         // 无锁写入循环（使用 CAS）
         while (true) {
             // 关键：原子读取 offset_ptr 指针（方案B核心）
             // 一旦读取，后续操作都基于这个指针，保证上下文一致性
             atomic_uint_least32_t *offset_ptr = atomic_load(&ctx->cur_offset_ptr);
             
+            // 检查offset_ptr是否变化，如果变化则更新缓存
+            if (offset_ptr != cached_offset_ptr) {
+                cached_offset_ptr = offset_ptr;
+                cached_file_size = get_file_size_from_offset_ptr(cached_offset_ptr);
+                cached_max_data_size = cached_file_size - LZ_LOG_FOOTER_SIZE;
+            }
+            
             // 读取当前偏移量（不修改）
             uint32_t current_offset = atomic_load(offset_ptr);
-            uint32_t file_size = get_file_size_from_offset_ptr(offset_ptr);
-            uint32_t max_data_size = file_size - LZ_LOG_FOOTER_SIZE;
+            // 使用缓存的值，避免重复读取
+            uint32_t file_size = cached_file_size;
+            uint32_t max_data_size = cached_max_data_size;
             
             // 检查是否需要切换文件
             if (current_offset + len > max_data_size) {
