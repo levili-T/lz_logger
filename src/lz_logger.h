@@ -77,9 +77,10 @@ typedef struct lz_logger_context_t* lz_logger_handle_t;
 
 /**
  * 设置日志文件最大大小
- * @param size 文件大小（字节），范围 [1KB, 7MB]
+ * @param size 文件大小（字节），范围 [1MB, 7MB]
  * @return 错误码
- * @note 必须在 lz_logger_open 之前调用
+ * @note 建议在 lz_logger_open 之前调用
+ * @note 运行时修改会影响后续新创建的文件，已有文件保持原有大小
  */
 FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_set_max_file_size(uint32_t size);
 
