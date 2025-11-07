@@ -75,8 +75,8 @@ int verify_salt_consistency() {
             continue;
         }
         
-        // 读取文件尾部的盐值（footer: [盐16字节][魔数4字节][大小4字节]）
-        fseek(fp, -24, SEEK_END);
+        // 读取文件尾部的盐值（新footer: [盐16字节][魔数4字节][文件大小4字节][已使用大小4字节]）
+        fseek(fp, -28, SEEK_END);
         uint8_t salt[16];
         if (fread(salt, 1, 16, fp) != 16) {
             fclose(fp);
