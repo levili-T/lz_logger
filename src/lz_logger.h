@@ -53,6 +53,9 @@ typedef struct lz_logger_context_t* lz_logger_handle_t;
 // Configuration Constants
 // ============================================================================
 
+/** 最小文件大小：1MB（用于测试频繁切换） */
+#define LZ_LOG_MIN_FILE_SIZE (1 * 1024 * 1024)
+
 /** 默认文件大小：5MB */
 #define LZ_LOG_DEFAULT_FILE_SIZE (5 * 1024 * 1024)
 

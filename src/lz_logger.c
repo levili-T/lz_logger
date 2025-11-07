@@ -45,6 +45,8 @@
  * 5. ✅ mmap/fd 独立性 - close(fd) 后 mmap 仍然有效
  * 6. ✅ 原子操作 - cur_offset_ptr, is_closed 使用 atomic 类型
  * 7. ✅ 指针替换顺序 - 先创建新 mmap，再替换指针，最后延迟清理
+ * 8. ✅ 原子指针方案 - cur_offset_ptr 为 atomic(atomic_uint_least32_t*)
+ * 9. ✅ 上下文一致性 - 写入时先原子读取 offset_ptr，通过指针反推 mmap_base
  * 
  * 潜在问题（已修复）：
  * 1. ✅ 已修复：错误处理中销毁未初始化的 mutex
@@ -52,16 +54,19 @@
  * 3. ✅ 已添加：write 函数的 mmap 有效性检查
  * 4. ✅ 已添加：write 函数的边界溢出检查
  * 5. ✅ 已添加：关键路径的调试日志
+ * 6. ✅ 已修复：原子指针方案（方案B）完全消除写入不一致问题
  * 
  * 竞态条件分析：
  * 场景1: 多个线程同时写入
  *   - 安全：CAS 保证只有一个线程能预留空间
  * 场景2: 写入时发生文件切换
- *   - 安全：switch_mutex 保证切换原子性，延迟 munmap 保证旧 mmap 可用
+ *   - 安全：原子指针 + 延迟 munmap 保证读取一致的 offset_ptr 和 mmap_base
  * 场景3: 切换时多个线程都检测到需要切换
  *   - 安全：双重检查锁定，第二个线程会发现已经切换完成
  * 场景4: close 时仍有线程在写入
  *   - 安全：atomic is_closed 标志阻止新写入，已开始的写入完成后自然结束
+ * 场景5: CAS 成功后读取 mmap_ptr（已消除）
+ *   - 完美：原子读取 offset_ptr 后，通过指针反推 mmap_base，保证完全一致
  */
 
 // ============================================================================
@@ -86,13 +91,13 @@ typedef struct lz_logger_context_t {
     char current_file_path[768];          // 当前日志文件路径
     
     int fd;                               // 文件描述符（仅用于初始化，可以提前关闭）
-    void *mmap_ptr;                       // 当前 mmap 映射指针
+    void *mmap_ptr;                       // 当前 mmap 映射指针（仅用于清理，写入时通过 cur_offset_ptr 反推）
     uint32_t file_size;                   // 文件总大小
     
     void *old_mmap_ptr;                   // 旧 mmap 指针（延迟销毁）
     uint32_t old_file_size;               // 旧文件大小
     
-    atomic_uint_least32_t *cur_offset_ptr; // 当前写入偏移量指针（指向文件尾部-4字节）
+    _Atomic(atomic_uint_least32_t *) cur_offset_ptr; // 原子指针：指向当前 offset（footer中的used_size字段）
     
     pthread_mutex_t switch_mutex;         // 文件切换互斥锁
     
@@ -431,8 +436,8 @@ static lz_log_error_t do_mmap_mapping(int fd,
 
 lz_log_error_t lz_logger_set_max_file_size(uint32_t size) {
     do {
-        // 参数校验：范围 [1KB, 7MB]
-        if (size < LZ_LOG_DEFAULT_FILE_SIZE || size > LZ_LOG_MAX_FILE_SIZE) {
+        // 参数校验：范围 [1MB, 7MB]
+        if (size < LZ_LOG_MIN_FILE_SIZE || size > LZ_LOG_MAX_FILE_SIZE) {
             return LZ_LOG_ERROR_INVALID_PARAM;
         }
         
@@ -558,13 +563,17 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         ctx->fd = fd;
         
         // 执行 mmap 映射
+        atomic_uint_least32_t *offset_ptr = NULL;
         ret = do_mmap_mapping(fd, ctx->file_size, 
-                               &ctx->mmap_ptr, &ctx->cur_offset_ptr);
+                               &ctx->mmap_ptr, &offset_ptr);
         if (ret != LZ_LOG_SUCCESS) {
             sys_errno = errno;
             LZ_DEBUG_LOG("Failed to mmap: %d, errno=%d", ret, sys_errno);
             break;
         }
+        
+        // 原子初始化 cur_offset_ptr
+        atomic_store(&ctx->cur_offset_ptr, offset_ptr);
         
         LZ_DEBUG_LOG("mmap succeeded: ptr=%p, file_size=%u", ctx->mmap_ptr, ctx->file_size);
         
@@ -597,10 +606,11 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         }
         
         // 同步文件中的偏移量（如果不一致则更新）
-        uint32_t file_offset = atomic_load(ctx->cur_offset_ptr);
+        atomic_uint_least32_t *current_offset_ptr = atomic_load(&ctx->cur_offset_ptr);
+        uint32_t file_offset = atomic_load(current_offset_ptr);
         if (file_offset != used_size) {
             LZ_DEBUG_LOG("Sync offset: file=%u, expected=%u", file_offset, used_size);
-            atomic_store(ctx->cur_offset_ptr, used_size);
+            atomic_store(current_offset_ptr, used_size);
             msync(ctx->mmap_ptr, ctx->file_size, MS_SYNC);
         }
         
@@ -817,14 +827,16 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
             LZ_DEBUG_LOG("Reinitialized encryption for new file");
         }
         
-        // 原子替换指针（让写入线程切换到新 mmap）
-        // 注意：这个操作不是原子的，但由于有 switch_mutex 保护，是安全的
-        ctx->mmap_ptr = new_mmap_ptr;
-        ctx->cur_offset_ptr = new_offset_ptr;
-        strncpy(ctx->current_file_path, new_file_path, sizeof(ctx->current_file_path) - 1);
-        
         // 初始化新文件的偏移量为0
-        atomic_store(ctx->cur_offset_ptr, 0);
+        atomic_store(new_offset_ptr, 0);
+        
+        // 关键：原子替换 cur_offset_ptr 指针（方案B的核心）
+        // 先替换指针，配合延迟 munmap，完美解决一致性问题
+        atomic_store(&ctx->cur_offset_ptr, new_offset_ptr);
+        
+        // 更新 mmap_ptr（仅用于清理，写入不依赖此字段）
+        ctx->mmap_ptr = new_mmap_ptr;
+        strncpy(ctx->current_file_path, new_file_path, sizeof(ctx->current_file_path) - 1);
         
         LZ_DEBUG_LOG("Pointer switch completed, storing old mmap for deferred cleanup");
         
@@ -890,8 +902,12 @@ lz_log_error_t lz_logger_write(lz_logger_handle_t handle,
         
         // 无锁写入循环（使用 CAS）
         while (true) {
+            // 关键：原子读取 offset_ptr 指针（方案B核心）
+            // 一旦读取，后续操作都基于这个指针，保证上下文一致性
+            atomic_uint_least32_t *offset_ptr = atomic_load(&ctx->cur_offset_ptr);
+            
             // 读取当前偏移量（不修改）
-            uint32_t current_offset = atomic_load(ctx->cur_offset_ptr);
+            uint32_t current_offset = atomic_load(offset_ptr);
             uint32_t max_data_size = ctx->file_size - LZ_LOG_FOOTER_SIZE;
             
             // 检查是否需要切换文件
@@ -907,7 +923,9 @@ lz_log_error_t lz_logger_write(lz_logger_handle_t handle,
                 }
                 
                 // 再次检查偏移量（可能其他线程已完成切换）
-                current_offset = atomic_load(ctx->cur_offset_ptr);
+                // 注意：这里需要重新读取 offset_ptr，因为可能已被切换
+                offset_ptr = atomic_load(&ctx->cur_offset_ptr);
+                current_offset = atomic_load(offset_ptr);
                 if (current_offset + len > max_data_size) {
                     // 执行文件切换
                     LZ_DEBUG_LOG("Switching to new file...");
@@ -933,13 +951,15 @@ lz_log_error_t lz_logger_write(lz_logger_handle_t handle,
             
             // 使用 CAS 原子操作预留空间
             uint32_t new_offset = current_offset + len;
-            if (atomic_compare_exchange_weak(ctx->cur_offset_ptr, 
+            if (atomic_compare_exchange_weak(offset_ptr, 
                                               &current_offset, 
                                               new_offset)) {
                 // CAS 成功，已预留空间
-                // 注意：这里的 mmap_ptr 可能在文件切换后改变，但这是安全的
-                // 因为我们使用的是延迟 munmap，旧的 mmap 仍然有效
-                void *write_ptr = (uint8_t *)ctx->mmap_ptr + current_offset;
+                // 关键：通过 offset_ptr 反推 mmap_ptr
+                // offset_ptr 指向 footer 的最后4字节 = mmap_base + file_size - 4
+                // 所以 mmap_base = offset_ptr - file_size + 4
+                void *mmap_base = (uint8_t *)offset_ptr - ctx->file_size + sizeof(uint32_t);
+                void *write_ptr = (uint8_t *)mmap_base + current_offset;
                 
                 memcpy(write_ptr, message, len);
                 
@@ -1001,7 +1021,9 @@ lz_log_error_t lz_logger_close(lz_logger_handle_t handle) {
         
         // 刷新当前 mmap
         if (ctx->mmap_ptr != NULL && ctx->mmap_ptr != MAP_FAILED) {
-            uint32_t final_offset = atomic_load(ctx->cur_offset_ptr);
+            // 读取最终偏移量
+            atomic_uint_least32_t *offset_ptr = atomic_load(&ctx->cur_offset_ptr);
+            uint32_t final_offset = atomic_load(offset_ptr);
             LZ_DEBUG_LOG("Flushing mmap: final_offset=%u", final_offset);
             msync(ctx->mmap_ptr, ctx->file_size, MS_SYNC);
             munmap(ctx->mmap_ptr, ctx->file_size);
@@ -1235,7 +1257,8 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
         }
         
         // 读取当前已使用大小（原子操作，无需锁）
-        uint32_t used_size = atomic_load(ctx->cur_offset_ptr);
+        atomic_uint_least32_t *offset_ptr = atomic_load(&ctx->cur_offset_ptr);
+        uint32_t used_size = atomic_load(offset_ptr);
         
         // 如果没有数据，直接返回成功
         if (used_size == 0) {
