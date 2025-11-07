@@ -800,31 +800,18 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
         
         LZ_DEBUG_LOG("New file created and mapped: %s", new_file_path);
         
-        // 如果启用加密，为新文件重新生成盐并重新初始化加密上下文
-        if (ctx->encrypt_key[0] != '\0') {
+        // 如果启用加密，为新文件复制盐值（保持进程内盐值不变）
+        if (ctx->encrypt_key[0] != '\0' && ctx->crypto_ctx.salt_ptr != NULL) {
             // 设置salt_ptr指向新mmap的footer
             uint8_t *new_salt_ptr = (uint8_t *)new_mmap_ptr + ctx->file_size - LZ_LOG_FOOTER_SIZE;
             
-            // 生成新盐
-            uint8_t temp_salt[LZ_LOG_SALT_SIZE];
-            if (lz_crypto_generate_salt(temp_salt) != 0) {
-                LZ_DEBUG_LOG("Failed to generate salt for new file");
-                ret = LZ_LOG_ERROR_FILE_CREATE;
-                break;
-            }
-            memcpy(new_salt_ptr, temp_salt, LZ_LOG_SALT_SIZE);
+            // 复制现有盐值到新文件（保持盐值一致性）
+            memcpy(new_salt_ptr, ctx->crypto_ctx.salt_ptr, LZ_LOG_SALT_SIZE);
             
-            // 更新crypto_ctx的salt_ptr
+            // 更新crypto_ctx的salt_ptr指向新文件
             ctx->crypto_ctx.salt_ptr = new_salt_ptr;
             
-            // 重新初始化加密上下文
-            if (lz_crypto_init(&ctx->crypto_ctx, ctx->encrypt_key, ctx->crypto_ctx.salt_ptr) != 0) {
-                LZ_DEBUG_LOG("Failed to reinitialize encryption for new file");
-                ret = LZ_LOG_ERROR_FILE_CREATE;
-                break;
-            }
-            
-            LZ_DEBUG_LOG("Reinitialized encryption for new file");
+            LZ_DEBUG_LOG("Copied salt to new file (salt remains unchanged)");
         }
         
         // 初始化新文件的偏移量为0
@@ -1250,13 +1237,7 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
             break;
         }
         
-        // 检查 mmap 是否有效
-        if (ctx->mmap_ptr == NULL || ctx->mmap_ptr == MAP_FAILED) {
-            ret = LZ_LOG_ERROR_INVALID_MMAP;
-            break;
-        }
-        
-        // 读取当前已使用大小（原子操作，无需锁）
+        // 原子读取 offset_ptr（和 write 路径一样，保证一致性）
         atomic_uint_least32_t *offset_ptr = atomic_load(&ctx->cur_offset_ptr);
         uint32_t used_size = atomic_load(offset_ptr);
         
@@ -1265,6 +1246,9 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
             ret = LZ_LOG_SUCCESS;
             break;
         }
+        
+        // 通过 offset_ptr 反推 mmap_base（和 write 路径一致）
+        void *mmap_base = (uint8_t *)offset_ptr - ctx->file_size + sizeof(uint32_t);
         
         // 构建导出文件路径
         memset(export_path, 0, sizeof(export_path));
@@ -1280,10 +1264,10 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
             break;
         }
         
-        // 直接从 mmap 写入数据到文件（无需 flush）
+        // 直接从 mmap 写入数据到文件（使用反推的 mmap_base）
         ssize_t written = 0;
         ssize_t total_written = 0;
-        const uint8_t *data_ptr = (const uint8_t *)ctx->mmap_ptr;
+        const uint8_t *data_ptr = (const uint8_t *)mmap_base;
         
         while (total_written < (ssize_t)used_size) {
             written = write(export_fd, data_ptr + total_written, used_size - total_written);
@@ -1303,8 +1287,8 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
         }
         
         // 写入footer: [盐16字节][魔数4字节][已用大小4字节]
-        // 从mmap的footer位置读取盐
-        uint8_t *salt_ptr = (uint8_t *)ctx->mmap_ptr + ctx->file_size - LZ_LOG_FOOTER_SIZE;
+        // 从mmap的footer位置读取盐（使用反推的 mmap_base）
+        uint8_t *salt_ptr = (uint8_t *)mmap_base + ctx->file_size - LZ_LOG_FOOTER_SIZE;
         if (write(export_fd, salt_ptr, LZ_LOG_SALT_SIZE) != LZ_LOG_SALT_SIZE) {
             ret = LZ_LOG_ERROR_FILE_WRITE;
             break;
