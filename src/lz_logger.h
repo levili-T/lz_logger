@@ -59,8 +59,8 @@ typedef struct lz_logger_context_t* lz_logger_handle_t;
 /** 默认文件大小：5MB */
 #define LZ_LOG_DEFAULT_FILE_SIZE (5 * 1024 * 1024)
 
-/** 最大文件大小：7MB */
-#define LZ_LOG_MAX_FILE_SIZE (7 * 1024 * 1024)
+/** 最大文件大小：100MB（临时提高用于性能测试） */
+#define LZ_LOG_MAX_FILE_SIZE (100 * 1024 * 1024)
 
 /** 文件尾部魔数标记 */
 #define LZ_LOG_MAGIC_ENDX 0x456E6478  // "Endx" in hex
@@ -68,8 +68,8 @@ typedef struct lz_logger_context_t* lz_logger_handle_t;
 /** 加密盐大小 */
 #define LZ_LOG_SALT_SIZE 16
 
-/** 文件尾部元数据大小（盐16字节 + 魔数4字节 + padding4字节 + 文件大小8字节 + 已用大小8字节） */
-#define LZ_LOG_FOOTER_SIZE 40
+/** 文件尾部元数据大小（盐16字节 + 魔数4字节 + padding4字节 + 文件大小4字节 + 已用大小4字节） */
+#define LZ_LOG_FOOTER_SIZE 32
 
 // ============================================================================
 // Public APIs

@@ -69,13 +69,20 @@ static int create_test_dir() {
 
 // 单线程性能测试
 static void test_single_thread_performance() {
-    printf("\n## 测试1: 单线程写入性能\n\n");
+    printf("\n## 测试1: 单线程写入性能 (40MB文件，无切换)\n\n");
     
     lz_logger_handle_t handle = NULL;
     int32_t inner_error = 0, sys_errno = 0;
     
+    // 设置文件大小为40MB（避免文件切换）
+    lz_log_error_t ret = lz_logger_set_max_file_size(40 * 1024 * 1024);
+    if (ret != LZ_LOG_SUCCESS) {
+        printf("❌ 设置文件大小失败: %s\n", lz_logger_error_string(ret));
+        return;
+    }
+    
     // 打开日志系统（不加密）
-    lz_log_error_t ret = lz_logger_open(TEST_LOG_DIR, NULL, &handle, &inner_error, &sys_errno);
+    ret = lz_logger_open(TEST_LOG_DIR, NULL, &handle, &inner_error, &sys_errno);
     if (ret != LZ_LOG_SUCCESS) {
         printf("❌ 打开日志失败: %s (inner=%d, errno=%d)\n", 
                lz_logger_error_string(ret), inner_error, sys_errno);
@@ -153,13 +160,20 @@ static void* thread_write_func(void* arg) {
 
 // 多线程性能测试
 static void test_multi_thread_performance() {
-    printf("\n## 测试2: 多线程并发写入性能\n\n");
+    printf("\n## 测试2: 多线程并发写入性能 (40MB文件，无切换)\n\n");
     
     lz_logger_handle_t handle = NULL;
     int32_t inner_error = 0, sys_errno = 0;
     
+    // 设置文件大小为40MB（避免文件切换）
+    lz_log_error_t ret = lz_logger_set_max_file_size(40 * 1024 * 1024);
+    if (ret != LZ_LOG_SUCCESS) {
+        printf("❌ 设置文件大小失败: %s\n", lz_logger_error_string(ret));
+        return;
+    }
+    
     // 打开日志系统（不加密）
-    lz_log_error_t ret = lz_logger_open(TEST_LOG_DIR, NULL, &handle, &inner_error, &sys_errno);
+    ret = lz_logger_open(TEST_LOG_DIR, NULL, &handle, &inner_error, &sys_errno);
     if (ret != LZ_LOG_SUCCESS) {
         printf("❌ 打开日志失败: %s (inner=%d, errno=%d)\n", 
                lz_logger_error_string(ret), inner_error, sys_errno);
@@ -240,14 +254,21 @@ static void test_multi_thread_performance() {
 
 // 测试加密模式性能
 static void test_encryption_performance() {
-    printf("\n## 测试3: 加密模式性能测试\n\n");
+    printf("\n## 测试3: 加密模式性能测试 (40MB文件，无切换)\n\n");
     
     const char* encrypt_key = "test_encryption_key_12345678";
     lz_logger_handle_t handle = NULL;
     int32_t inner_error = 0, sys_errno = 0;
     
+    // 设置文件大小为40MB（避免文件切换）
+    lz_log_error_t ret = lz_logger_set_max_file_size(40 * 1024 * 1024);
+    if (ret != LZ_LOG_SUCCESS) {
+        printf("❌ 设置文件大小失败: %s\n", lz_logger_error_string(ret));
+        return;
+    }
+    
     // 打开日志系统（加密）
-    lz_log_error_t ret = lz_logger_open(TEST_LOG_DIR, encrypt_key, &handle, &inner_error, &sys_errno);
+    ret = lz_logger_open(TEST_LOG_DIR, encrypt_key, &handle, &inner_error, &sys_errno);
     if (ret != LZ_LOG_SUCCESS) {
         printf("❌ 打开日志失败: %s (inner=%d, errno=%d)\n", 
                lz_logger_error_string(ret), inner_error, sys_errno);
