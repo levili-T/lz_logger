@@ -27,7 +27,7 @@ CRYPTO_BLOCK_SIZE = 16
 CRYPTO_SALT_SIZE = 16
 PBKDF2_ITERATIONS = 10000
 MAGIC_ENDX = 0x456E6478
-FOOTER_SIZE = 28  # 盐16字节 + 魔数4字节 + 文件大小4字节 + 已用大小4字节
+FOOTER_SIZE = 40  # 盐16字节 + 魔数4字节 + padding4字节 + 文件大小8字节 + 已用大小8字节
 
 
 def derive_key(password: str, salt: bytes) -> bytes:
@@ -75,7 +75,7 @@ def decrypt_aes_ctr(key: bytes, data: bytes, offset: int = 0) -> bytes:
 def read_log_file(file_path: str):
     """
     读取日志文件
-    文件格式: [数据区域][盐16字节][魔数4字节][文件大小4字节][已用大小4字节]
+    文件格式: [数据区域][盐16字节][魔数4字节][padding4字节][文件大小8字节][已用大小8字节]
     
     Returns:
         (salt, encrypted_data, used_size, file_size_from_footer)
@@ -88,13 +88,14 @@ def read_log_file(file_path: str):
         if file_size < FOOTER_SIZE:
             raise ValueError("文件太小,无法读取footer")
         
-        # 读取 footer: [盐16字节][魔数4字节][文件大小4字节][已用大小4字节]
+        # 读取 footer: [盐16字节][魔数4字节][padding4字节][文件大小8字节][已用大小8字节]
         f.seek(file_size - FOOTER_SIZE)
         footer = f.read(FOOTER_SIZE)
         
         # 解析footer
         salt = footer[:CRYPTO_SALT_SIZE]
-        magic, footer_file_size, used_size = struct.unpack('<III', footer[CRYPTO_SALT_SIZE:])
+        magic, padding = struct.unpack('<II', footer[CRYPTO_SALT_SIZE:CRYPTO_SALT_SIZE+8])
+        footer_file_size, used_size = struct.unpack('<QQ', footer[CRYPTO_SALT_SIZE+8:])
         
         if magic != MAGIC_ENDX:
             print(f"警告: 文件尾部魔数不匹配 (期望 0x{MAGIC_ENDX:08X}, 实际 0x{magic:08X})")
