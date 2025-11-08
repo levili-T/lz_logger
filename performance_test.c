@@ -106,7 +106,7 @@ static void test_single_thread_performance() {
     // 计算性能指标
     double elapsed_sec = elapsed_us / 1000000.0;
     double logs_per_sec = SINGLE_THREAD_ITERATIONS / elapsed_sec;
-    double us_per_log = (double)elapsed_us / SINGLE_THREAD_ITERATIONS;
+    double ns_per_log = (double)elapsed_us * 1000.0 / SINGLE_THREAD_ITERATIONS; // 纳秒
     double mb_written = (SINGLE_THREAD_ITERATIONS * 120) / (1024.0 * 1024.0); // 平均每条120字节
     double mb_per_sec = mb_written / elapsed_sec;
     
@@ -115,10 +115,10 @@ static void test_single_thread_performance() {
     printf("|------|------|\n");
     printf("| **总耗时** | %.2f 秒 |\n", elapsed_sec);
     printf("| **日志条数** | %d 条 |\n", SINGLE_THREAD_ITERATIONS);
-    printf("| **写入速度** | **%s 条/秒** |\n", format_number((int)logs_per_sec));
-    printf("| **单条耗时** | **%.2f 微秒/条** |\n", us_per_log);
+    printf("| **单条耗时** | **%.0f 纳秒/条** |\n", ns_per_log);
+    printf("| **写入速度** | %s 条/秒 |\n", format_number((int)logs_per_sec));
     printf("| **数据量** | %.2f MB |\n", mb_written);
-    printf("| **吞吐量** | **%.2f MB/秒** |\n", mb_per_sec);
+    printf("| **吞吐量** | %.2f MB/秒 |\n", mb_per_sec);
     printf("\n");
     
     lz_logger_close(handle);
@@ -207,7 +207,7 @@ static void test_multi_thread_performance() {
     
     double elapsed_sec = total_elapsed_us / 1000000.0;
     double logs_per_sec = total_success / elapsed_sec;
-    double us_per_log = (double)max_thread_time / MULTI_THREAD_ITERATIONS;
+    double ns_per_log = (double)max_thread_time * 1000.0 / MULTI_THREAD_ITERATIONS; // 纳秒
     double mb_written = (total_success * 120) / (1024.0 * 1024.0);
     double mb_per_sec = mb_written / elapsed_sec;
     
@@ -217,10 +217,10 @@ static void test_multi_thread_performance() {
     printf("| **线程数** | %d 个 |\n", NUM_THREADS);
     printf("| **总耗时** | %.2f 秒 |\n", elapsed_sec);
     printf("| **日志条数** | %s 条 |\n", format_number(total_success));
-    printf("| **写入速度** | **%s 条/秒** |\n", format_number((int)logs_per_sec));
-    printf("| **单条耗时** | **%.2f 微秒/条** (最慢线程) |\n", us_per_log);
+    printf("| **单条耗时** | **%.0f 纳秒/条** (最慢线程) |\n", ns_per_log);
+    printf("| **写入速度** | %s 条/秒 |\n", format_number((int)logs_per_sec));
     printf("| **数据量** | %.2f MB |\n", mb_written);
-    printf("| **吞吐量** | **%.2f MB/秒** |\n", mb_per_sec);
+    printf("| **吞吐量** | %.2f MB/秒 |\n", mb_per_sec);
     
     printf("\n**各线程性能分布：**\n\n");
     printf("| 线程 | 耗时(秒) | 日志数 | 速度(条/秒) |\n");
@@ -278,7 +278,7 @@ static void test_encryption_performance() {
     
     double elapsed_sec = elapsed_us / 1000000.0;
     double logs_per_sec = success_count / elapsed_sec;
-    double us_per_log = (double)elapsed_us / success_count;
+    double ns_per_log = (double)elapsed_us * 1000.0 / success_count; // 纳秒
     double mb_written = (success_count * 120) / (1024.0 * 1024.0);
     double mb_per_sec = mb_written / elapsed_sec;
     
@@ -287,10 +287,10 @@ static void test_encryption_performance() {
     printf("|------|------|\n");
     printf("| **总耗时** | %.2f 秒 |\n", elapsed_sec);
     printf("| **日志条数** | %s 条 |\n", format_number(success_count));
-    printf("| **写入速度** | **%s 条/秒** |\n", format_number((int)logs_per_sec));
-    printf("| **单条耗时** | **%.2f 微秒/条** |\n", us_per_log);
+    printf("| **单条耗时** | **%.0f 纳秒/条** |\n", ns_per_log);
+    printf("| **写入速度** | %s 条/秒 |\n", format_number((int)logs_per_sec));
     printf("| **数据量** | %.2f MB |\n", mb_written);
-    printf("| **吞吐量** | **%.2f MB/秒** |\n", mb_per_sec);
+    printf("| **吞吐量** | %.2f MB/秒 |\n", mb_per_sec);
     printf("\n");
     
     lz_logger_close(handle);
@@ -300,6 +300,14 @@ int main() {
     printf("\n");
     printf("# LZ Logger 性能测试报告\n\n");
     printf("**测试工具版本:** v1.0  \n");
+    
+    // 设置文件大小为40MB（避免文件切换影响测试）
+    lz_log_error_t ret = lz_logger_set_max_file_size(40 * 1024 * 1024);
+    if (ret != LZ_LOG_SUCCESS) {
+        printf("❌ 设置文件大小失败: %s\n", lz_logger_error_string(ret));
+        return 1;
+    }
+    printf("**文件大小:** 40MB (避免文件切换)  \n");
     
     // 创建测试目录
     if (create_test_dir() != 0) {
