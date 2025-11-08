@@ -38,5 +38,6 @@ migrate_working_dir/
 *.dylib
 *.a
 performance_test
+realistic_scenario_test
 test_multithread_switch
 verify_log_sequence
