@@ -7,8 +7,8 @@
 
 #define TEST_LOG_DIR "/tmp/lz_logger_perf_test"
 #define SINGLE_THREAD_ITERATIONS 100000
-#define MULTI_THREAD_ITERATIONS 20000
-#define NUM_THREADS 5
+#define MULTI_THREAD_ITERATIONS 10000
+#define NUM_THREADS 10
 
 // 测试日志消息（模拟真实日志格式）
 static const char* test_messages[] = {
@@ -207,7 +207,7 @@ static void test_multi_thread_performance() {
     
     double elapsed_sec = total_elapsed_us / 1000000.0;
     double logs_per_sec = total_success / elapsed_sec;
-    double ns_per_log = (double)max_thread_time * 1000.0 / MULTI_THREAD_ITERATIONS; // 纳秒
+    double ns_per_log = (double)total_elapsed_us * 1000.0 / total_success; // 总纳秒/总条数
     double mb_written = (total_success * 120) / (1024.0 * 1024.0);
     double mb_per_sec = mb_written / elapsed_sec;
     
@@ -217,10 +217,10 @@ static void test_multi_thread_performance() {
     printf("| **线程数** | %d 个 |\n", NUM_THREADS);
     printf("| **总耗时** | %.2f 秒 |\n", elapsed_sec);
     printf("| **日志条数** | %s 条 |\n", format_number(total_success));
-    printf("| **单条耗时** | **%.0f 纳秒/条** (最慢线程) |\n", ns_per_log);
-    printf("| **写入速度** | %s 条/秒 |\n", format_number((int)logs_per_sec));
+    printf("| **吞吐量** | **%s 条/秒** ⭐ |\n", format_number((int)logs_per_sec));
+    printf("| **平均延迟** | %.0f 纳秒/条 |\n", ns_per_log);
     printf("| **数据量** | %.2f MB |\n", mb_written);
-    printf("| **吞吐量** | %.2f MB/秒 |\n", mb_per_sec);
+    printf("| **写入速度** | %.2f MB/秒 |\n", mb_per_sec);
     
     printf("\n**各线程性能分布：**\n\n");
     printf("| 线程 | 耗时(秒) | 日志数 | 速度(条/秒) |\n");
