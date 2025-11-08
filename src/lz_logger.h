@@ -56,11 +56,11 @@ typedef struct lz_logger_context_t* lz_logger_handle_t;
 /** 最小文件大小：1MB（用于测试频繁切换） */
 #define LZ_LOG_MIN_FILE_SIZE (1 * 1024 * 1024)
 
-/** 默认文件大小：5MB */
-#define LZ_LOG_DEFAULT_FILE_SIZE (5 * 1024 * 1024)
+/** 默认文件大小：6MB */
+#define LZ_LOG_DEFAULT_FILE_SIZE (6 * 1024 * 1024)
 
-/** 最大文件大小：7MB */
-#define LZ_LOG_MAX_FILE_SIZE (7 * 1024 * 1024)
+/** 最大文件大小：100MB */
+#define LZ_LOG_MAX_FILE_SIZE (100 * 1024 * 1024)
 
 /** 文件尾部魔数标记 */
 #define LZ_LOG_MAGIC_ENDX 0x456E6478  // "Endx" in hex
@@ -77,7 +77,7 @@ typedef struct lz_logger_context_t* lz_logger_handle_t;
 
 /**
  * 设置日志文件最大大小
- * @param size 文件大小（字节），范围 [1MB, 7MB]
+ * @param size 文件大小（字节），范围 [1MB, 100MB]
  * @return 错误码
  * @note 建议在 lz_logger_open 之前调用
  * @note 运行时修改会影响后续新创建的文件，已有文件保持原有大小
