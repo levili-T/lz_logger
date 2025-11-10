@@ -240,7 +240,7 @@ void run_scenario_test(int scenario_index) {
     lz_logger_close(ctx);
     system("rm -f /tmp/*.log");
     err = lz_logger_open("/tmp", NULL, &ctx, NULL, NULL);
-    lz_logger_set_max_file_size(50 * 1024 * 1024);
+    lz_logger_set_max_file_size(50 * 1024 * 1024);  // 50MB
     
     // 多线程测试
     TestContext test_ctx = {0};
