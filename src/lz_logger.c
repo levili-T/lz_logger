@@ -938,7 +938,7 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
             break;
         }
         
-        // 无锁写入循环（使用 CAS）
+        // 无锁写入（使用 atomic_fetch_add）
         while (true) {
             // 关键：原子读取 offset_ptr 指针（方案B核心）
             // 一旦读取，后续操作都基于这个指针，保证上下文一致性
@@ -951,16 +951,21 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
                 cached_max_data_size = cached_file_size - LZ_LOG_FOOTER_SIZE;
             }
             
-            // 读取当前偏移量（不修改）
-            uint32_t current_offset = atomic_load(offset_ptr);
             // 使用缓存的值，避免重复读取
             uint32_t file_size = cached_file_size;
             uint32_t max_data_size = cached_max_data_size;
             
-            // 检查是否需要切换文件
-            if (current_offset + len > max_data_size) {
+            // 使用 atomic_fetch_add 原子预留空间（O(1)，无竞争）
+            uint32_t my_offset = atomic_fetch_add(offset_ptr, len);
+            uint32_t my_new_offset = my_offset + len;
+            
+            // 检查是否超出文件大小
+            if (my_new_offset > max_data_size) {
+                // 回滚已分配的空间
+                atomic_fetch_sub(offset_ptr, len);
+                
                 LZ_DEBUG_LOG("Need file switch: offset=%u, len=%u, max=%u", 
-                             current_offset, len, max_data_size);
+                             my_offset, len, max_data_size);
                 
                 // 需要切换文件，加锁处理
                 if (pthread_mutex_lock(&ctx->switch_mutex) != 0) {
@@ -972,56 +977,50 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
                 // 再次检查偏移量（可能其他线程已完成切换）
                 // 注意：这里需要重新读取 offset_ptr，因为可能已被切换
                 offset_ptr = atomic_load(&ctx->cur_offset_ptr);
-                current_offset = atomic_load(offset_ptr);
-                if (current_offset + len > max_data_size) {
-                    // 执行文件切换
-                    LZ_DEBUG_LOG("Switching to new file...");
-                    ret = switch_to_new_file(ctx);
+                uint32_t current_offset = atomic_load(offset_ptr);
+                
+                // 如果指针已切换或当前偏移量可以容纳，则无需切换
+                if (offset_ptr != cached_offset_ptr || current_offset + len <= max_data_size) {
                     pthread_mutex_unlock(&ctx->switch_mutex);
-                    
-                    if (ret != LZ_LOG_SUCCESS) {
-                        LZ_DEBUG_LOG("File switch failed: %d", ret);
-                        ret = LZ_LOG_ERROR_FILE_SWITCH;
-                        break;
-                    }
-                    
-                    LZ_DEBUG_LOG("File switch succeeded");
-                    // 切换成功，继续循环重试写入
+                    LZ_DEBUG_LOG("Other thread completed switch, retrying");
+                    // 其他线程已完成切换，继续循环重试
                     continue;
                 }
                 
+                // 执行文件切换
+                LZ_DEBUG_LOG("Switching to new file...");
+                ret = switch_to_new_file(ctx);
                 pthread_mutex_unlock(&ctx->switch_mutex);
-                LZ_DEBUG_LOG("Other thread completed switch, retrying");
-                // 其他线程已完成切换，继续循环重试
+                
+                if (ret != LZ_LOG_SUCCESS) {
+                    LZ_DEBUG_LOG("File switch failed: %d", ret);
+                    ret = LZ_LOG_ERROR_FILE_SWITCH;
+                    break;
+                }
+                
+                LZ_DEBUG_LOG("File switch succeeded");
+                // 切换成功，继续循环重试写入
                 continue;
             }
             
-            // 使用 CAS 原子操作预留空间
-            uint32_t new_offset = current_offset + len;
-            if (atomic_compare_exchange_weak(offset_ptr, 
-                                              &current_offset, 
-                                              new_offset)) {
-                // CAS 成功，已预留空间
-                // 关键：通过 offset_ptr 反推 mmap_base（使用辅助函数）
-                void *mmap_base = get_mmap_base_from_offset_ptr(offset_ptr);
-                void *write_ptr = (uint8_t *)mmap_base + current_offset;
-                
-                memcpy(write_ptr, message, len);
-                
-                // 流式加密（如果启用）
-                if (ctx->crypto_ctx.is_initialized) {
-                    // current_offset 已经是文件中的实际偏移量(包括盐区域)
-                    ret = encrypt_data(ctx, write_ptr, len, current_offset);
-                    if (ret != LZ_LOG_SUCCESS) {
-                        LZ_DEBUG_LOG("Encryption failed at offset %u", current_offset);
-                        break;
-                    }
+            // fetch_add 成功，已预留空间 [my_offset, my_new_offset)
+            // 关键：通过 offset_ptr 反推 mmap_base（使用辅助函数）
+            void *mmap_base = get_mmap_base_from_offset_ptr(offset_ptr);
+            void *write_ptr = (uint8_t *)mmap_base + my_offset;
+            
+            memcpy(write_ptr, message, len);
+            
+            // 流式加密（如果启用）
+            if (ctx->crypto_ctx.is_initialized) {
+                // my_offset 已经是文件中的实际偏移量(包括盐区域)
+                ret = encrypt_data(ctx, write_ptr, len, my_offset);
+                if (ret != LZ_LOG_SUCCESS) {
+                    LZ_DEBUG_LOG("Encryption failed at offset %u", my_offset);
+                    break;
                 }
-                
-                break;  // 写入完成
             }
             
-            // CAS 失败，其他线程已修改偏移量，重试
+            break;  // 写入完成
         }
         
     } while (0);

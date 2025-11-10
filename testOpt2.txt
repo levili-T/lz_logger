@@ -1,0 +1,108 @@
+[LZLogger] lz_logger.c:548 lz_logger_open() - Context initialized: log_dir=/tmp/lz_logger_perf_test, max_file_size=41943040, encrypted=0
+[LZLogger] lz_logger.c:554 lz_logger_open() - Current date: 2025-11-10
+[LZLogger] lz_logger.c:225 find_latest_log_number() - Find latest log number: -1 (date=2025-11-10)
+[LZLogger] lz_logger.c:564 lz_logger_open() - Found max log number: -1
+[LZLogger] lz_logger.c:316 create_and_extend_file() - Wrote footer: salt + magic + file_size(41943040) + used_size to offset 41943012
+[LZLogger] lz_logger.c:619 lz_logger_open() - mmap succeeded: mmap_base=0x106d38000, file_size=41943040
+[LZLogger] lz_logger.c:659 lz_logger_open() - Logger opened successfully: file=/tmp/lz_logger_perf_test/2025-11-10-0.log, offset=0
+[LZLogger] lz_logger.c:1065 lz_logger_close() - Closing logger: file=/tmp/lz_logger_perf_test/2025-11-10-0.log
+[LZLogger] lz_logger.c:1077 lz_logger_close() - Flushing mmap: final_offset=12100000
+[LZLogger] lz_logger.c:1101 lz_logger_close() - Logger closed successfully
+[LZLogger] lz_logger.c:548 lz_logger_open() - Context initialized: log_dir=/tmp/lz_logger_perf_test, max_file_size=41943040, encrypted=0
+[LZLogger] lz_logger.c:554 lz_logger_open() - Current date: 2025-11-10
+[LZLogger] lz_logger.c:225 find_latest_log_number() - Find latest log number: 0 (date=2025-11-10)
+[LZLogger] lz_logger.c:564 lz_logger_open() - Found max log number: 0
+[LZLogger] lz_logger.c:619 lz_logger_open() - mmap succeeded: mmap_base=0x109538000, file_size=41943040
+[LZLogger] lz_logger.c:659 lz_logger_open() - Logger opened successfully: file=/tmp/lz_logger_perf_test/2025-11-10-0.log, offset=12100000
+[LZLogger] lz_logger.c:1065 lz_logger_close() - Closing logger: file=/tmp/lz_logger_perf_test/2025-11-10-0.log
+[LZLogger] lz_logger.c:1077 lz_logger_close() - Flushing mmap: final_offset=24200000
+[LZLogger] lz_logger.c:1101 lz_logger_close() - Logger closed successfully
+[LZLogger] lz_logger.c:541 lz_logger_open() - Encryption key provided
+[LZLogger] lz_logger.c:548 lz_logger_open() - Context initialized: log_dir=/tmp/lz_logger_perf_test, max_file_size=41943040, encrypted=0
+[LZLogger] lz_logger.c:554 lz_logger_open() - Current date: 2025-11-10
+[LZLogger] lz_logger.c:225 find_latest_log_number() - Find latest log number: 0 (date=2025-11-10)
+[LZLogger] lz_logger.c:564 lz_logger_open() - Found max log number: 0
+[LZLogger] lz_logger.c:619 lz_logger_open() - mmap succeeded: mmap_base=0x10bd38000, file_size=41943040
+[LZLogger] lz_logger.c:646 lz_logger_open() - Encryption initialized
+[LZLogger] lz_logger.c:659 lz_logger_open() - Logger opened successfully: file=/tmp/lz_logger_perf_test/2025-11-10-0.log, offset=24200000
+[LZLogger] lz_logger.c:1065 lz_logger_close() - Closing logger: file=/tmp/lz_logger_perf_test/2025-11-10-0.log
+[LZLogger] lz_logger.c:1077 lz_logger_close() - Flushing mmap: final_offset=36300000
+[LZLogger] lz_logger.c:1101 lz_logger_close() - Logger closed successfully
+
+# LZ Logger 性能测试报告
+
+**测试工具版本:** v1.0  
+**文件大小:** 40MB (避免文件切换)  
+**测试目录:** `/tmp/lz_logger_perf_test`  
+
+## 测试1: 单线程写入性能
+
+✅ 日志系统初始化成功
+📝 开始写入 100000 条日志...
+
+✅ 测试完成
+
+| 指标 | 数值 |
+|------|------|
+| **总耗时** | 0.00 秒 |
+| **日志条数** | 100000 条 |
+| **单条耗时** | **28 纳秒/条** |
+| **写入速度** | 35,676,061 条/秒 |
+| **数据量** | 11.44 MB |
+| **吞吐量** | 4082.80 MB/秒 |
+
+
+## 测试2: 多线程并发写入性能
+
+✅ 日志系统初始化成功
+📝 启动 10 个线程，每个写入 10000 条日志...
+
+✅ 测试完成
+
+| 指标 | 数值 |
+|------|------|
+| **线程数** | 10 个 |
+| **总耗时** | 0.01 秒 |
+| **日志条数** | 100,000 条 |
+| **吞吐量** | **9,602,458 条/秒** ⭐ |
+| **平均延迟** | 104 纳秒/条 |
+| **数据量** | 11.44 MB |
+| **写入速度** | 1098.91 MB/秒 |
+
+**各线程性能分布：**
+
+| 线程 | 耗时(秒) | 日志数 | 速度(条/秒) |
+|------|----------|--------|-------------|
+| 线程 0 | 0.01 | 10,000 | 983,090 |
+| 线程 1 | 0.01 | 10,000 | 1,078,748 |
+| 线程 2 | 0.01 | 10,000 | 1,179,245 |
+| 线程 3 | 0.01 | 10,000 | 969,932 |
+| 线程 4 | 0.01 | 10,000 | 969,838 |
+| 线程 5 | 0.01 | 10,000 | 976,085 |
+| 线程 6 | 0.01 | 10,000 | 1,006,339 |
+| 线程 7 | 0.01 | 10,000 | 1,012,555 |
+| 线程 8 | 0.01 | 10,000 | 977,995 |
+| 线程 9 | 0.01 | 10,000 | 1,048,877 |
+
+
+## 测试3: 加密模式性能测试
+
+✅ 日志系统初始化成功（加密模式: AES-128-CBC）
+📝 开始写入 100,000 条日志...
+
+✅ 测试完成
+
+| 指标 | 数值 |
+|------|------|
+| **总耗时** | 0.04 秒 |
+| **日志条数** | 100,000 条 |
+| **单条耗时** | **378 纳秒/条** |
+| **写入速度** | 2,646,622 条/秒 |
+| **数据量** | 11.44 MB |
+| **吞吐量** | 302.88 MB/秒 |
+
+
+---
+
+✅ **所有测试完成！**
+
