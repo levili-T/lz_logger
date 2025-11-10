@@ -242,6 +242,16 @@
 #endif
 }
 
+- (void)logMessage:(LZLogLevel)level
+              file:(const char *)file
+          function:(const char *)function
+              line:(NSUInteger)line
+               tag:(NSString *)tag
+           message:(NSString *)message {
+    // 直接调用带可变参数的 log 方法，传入 %@ 格式化字符串
+    [self log:level file:file function:function line:line tag:tag format:@"%@", message];
+}
+
 - (void)flush {
     if (!self.isInitialized || self.handle == NULL) {
         return;

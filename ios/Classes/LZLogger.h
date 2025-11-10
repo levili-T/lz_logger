@@ -56,6 +56,22 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
      format:(NSString *)format, ... NS_FORMAT_FUNCTION(6, 7);
 
 /**
+ * 写入日志（不带可变参数，供 Swift 使用）
+ * @param level 日志级别
+ * @param file 文件名
+ * @param function 函数名
+ * @param line 行号
+ * @param tag 标签
+ * @param message 日志消息
+ */
+- (void)logMessage:(LZLogLevel)level
+              file:(const char *)file
+          function:(const char *)function
+              line:(NSUInteger)line
+               tag:(NSString *)tag
+           message:(NSString *)message;
+
+/**
  * 同步日志到磁盘
  */
 - (void)flush;
