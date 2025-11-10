@@ -961,8 +961,10 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx) {
             
             // 检查是否超出文件大小
             if (my_new_offset > max_data_size) {
-                // 回滚已分配的空间
-                atomic_fetch_sub(offset_ptr, len);
+                // 注意: 不需要回滚 atomic_fetch_sub
+                // 原因: 1) 可能多个线程都已fetch_add超出,无法完全回滚
+                //       2) 切换新文件后会从0开始,旧offset值无关紧要
+                //       3) 不回滚也不会有逻辑错误
                 
                 LZ_DEBUG_LOG("Need file switch: offset=%u, len=%u, max=%u", 
                              my_offset, len, max_data_size);

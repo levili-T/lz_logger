@@ -63,8 +63,10 @@ LZ Logger 是一个**极致性能、跨平台**的日志系统，专为 Flutter 
 uint32_t my_offset = atomic_fetch_add(offset_ptr, len);
 
 if (my_offset + len > max_data_size) {
-    // 预留失败,回滚并触发文件切换
-    atomic_fetch_sub(offset_ptr, len);
+    // 预留失败,触发文件切换
+    // 注意: 不需要回滚(atomic_fetch_sub)
+    // 原因: 1) 多线程并发可能都已超出,无法完全回滚
+    //       2) 切换新文件后从0开始,旧offset值无关紧要
     // ... 文件切换逻辑
     return;
 }
@@ -122,7 +124,7 @@ do {
 **为什么 atomic_fetch_add 优于 CAS 循环?**
 - **CAS 循环**: 在高并发下需要多次重试,每次重试都需要重新读取和比较
 - **atomic_fetch_add**: 硬件保证一次性成功,无重试开销
-- **回滚机制**: 使用 atomic_fetch_sub 回滚超出的预留,保证正确性
+- **无需回滚**: 超出预留不回滚,切换文件后从0开始,简化逻辑
 - **时间复杂度**: O(1) vs O(n),在高并发下优势明显
 - **真实场景优势**: 有业务间隔时,扩展性接近完美(>95%)
 
