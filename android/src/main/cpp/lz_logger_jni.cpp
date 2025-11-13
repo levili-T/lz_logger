@@ -199,9 +199,14 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
         return;
     }
     
-    // 如果超长被截断，使用实际缓冲区大小（snprintf 会保证 null 终止）
+    // 如果超长被截断，添加省略号并保留换行符
     if (len >= (int)sizeof(fullMessage)) {
-        len = sizeof(fullMessage) - 1;  // 截断，不包括 null
+        len = sizeof(fullMessage) - 1;  // 截断到缓冲区大小（不包括 null）
+        // 覆盖最后4个字符为 "...\n"
+        fullMessage[len - 4] = '.';
+        fullMessage[len - 3] = '.';
+        fullMessage[len - 2] = '.';
+        fullMessage[len - 1] = '\n';
     }
     
     // 写入日志（直接使用计算出的长度，无需再次 strlen）
@@ -378,9 +383,14 @@ void lz_logger_ffi(int level, const char* tag, const char* function, const char*
         return;
     }
     
-    // 如果超长被截断，使用实际缓冲区大小
+    // 如果超长被截断，添加省略号并保留换行符
     if (len >= (int)sizeof(fullMessage)) {
-        len = sizeof(fullMessage) - 1;  // 截断，不包括 null
+        len = sizeof(fullMessage) - 1;  // 截断到缓冲区大小（不包括 null）
+        // 覆盖最后4个字符为 "...\n"
+        fullMessage[len - 4] = '.';
+        fullMessage[len - 3] = '.';
+        fullMessage[len - 2] = '.';
+        fullMessage[len - 1] = '\n';
     }
     
     // 写入日志（直接使用计算出的长度，无需再次 strlen）
