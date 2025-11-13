@@ -1311,14 +1311,23 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
         atomic_uint_least32_t *offset_ptr = atomic_load(&ctx->cur_offset_ptr);
         uint32_t used_size = atomic_load(offset_ptr);
         
+        // 通过 offset_ptr 反推 mmap_base 和 file_size
+        void *mmap_base = get_mmap_base_from_offset_ptr(offset_ptr);
+        uint32_t file_size = get_file_size_from_offset_ptr(offset_ptr);
+        uint32_t max_data_size = file_size - LZ_LOG_FOOTER_SIZE;
+        
+        // 边界检查：used_size 不能超过文件可用空间
+        if (used_size > max_data_size) {
+            LZ_DEBUG_LOG("Invalid used_size: %u > max_data_size: %u", used_size, max_data_size);
+            ret = LZ_LOG_ERROR_FILE_SIZE_EXCEED;
+            break;
+        }
+        
         // 如果没有数据，直接返回成功
         if (used_size == 0) {
             ret = LZ_LOG_SUCCESS;
             break;
         }
-        
-        // 通过 offset_ptr 反推 mmap_base（和 write 路径一致）
-        void *mmap_base = get_mmap_base_from_offset_ptr(offset_ptr);
         
         // 构建导出文件路径
         memset(export_path, 0, sizeof(export_path));
@@ -1357,8 +1366,7 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_export_current_log(
         }
         
         // 写入footer: [盐16字节][魔数4字节][文件大小4字节][已用大小4字节]
-        // 从mmap的footer位置读取盐（使用反推的 mmap_base）
-        uint32_t file_size = get_file_size_from_offset_ptr(offset_ptr);
+        // 从mmap的footer位置读取盐（使用反推的 mmap_base，file_size 已在前面获取）
         uint8_t *salt_ptr = (uint8_t *)mmap_base + file_size - LZ_LOG_FOOTER_SIZE;
         if (write(export_fd, salt_ptr, LZ_LOG_SALT_SIZE) != LZ_LOG_SALT_SIZE) {
             ret = LZ_LOG_ERROR_FILE_WRITE;
