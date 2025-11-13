@@ -46,6 +46,15 @@ static const char* get_level_string(int level) {
     }
 }
 
+// 截断日志消息（在末尾添加 ...\n）
+static inline void truncate_log_message(char* buffer, size_t buffer_size) {
+    size_t len = buffer_size - 1;
+    buffer[len - 4] = '.';
+    buffer[len - 3] = '.';
+    buffer[len - 2] = '.';
+    buffer[len - 1] = '\n';
+}
+
 // FFI 函数前置声明
 extern "C" void lz_logger_ffi_set_handle(lz_logger_handle_t handle);
 extern "C" void lz_logger_ffi(int level, const char* tag, const char* function, const char* message);
@@ -167,6 +176,8 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
     // 格式: yyyy-MM-dd HH:mm:ss.SSS T:1234 [file:line] [func] [tag] message
     //       如果 function 为空，则省略 [func] 字段
     char fullMessage[LOG_MESSAGE_BUFFER_SIZE];
+    char* dynamicBuffer = nullptr;
+    char* logBuffer = fullMessage;
     int len; // snprintf 返回写入的字符数（不包括 null）
     
     if (function && *function) {  // 优化：直接检查指针和首字符，无需 strlen
@@ -188,7 +199,7 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
                        message ? message : "");
     }
     
-    // 处理 snprintf 结果：如果超长则截断，如果出错则跳过
+    // 处理 snprintf 结果：如果出错则跳过
     if (len < 0) {
         LOGE("Log formatting error");
         // 释放字符串后返回
@@ -199,18 +210,46 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
         return;
     }
     
-    // 如果超长被截断，添加省略号并保留换行符
+    // 如果超长，根据日志级别决定策略
     if (len >= (int)sizeof(fullMessage)) {
-        len = sizeof(fullMessage) - 1;  // 截断到缓冲区大小（不包括 null）
-        // 覆盖最后4个字符为 "...\n"
-        fullMessage[len - 4] = '.';
-        fullMessage[len - 3] = '.';
-        fullMessage[len - 2] = '.';
-        fullMessage[len - 1] = '\n';
+        // DEBUG级别(level=1)：动态分配内存，完整输出
+        if (level == 1) {
+            dynamicBuffer = (char*)malloc(len + 1);  // +1 for null terminator
+            if (dynamicBuffer != nullptr) {
+                // 重新格式化到动态缓冲区
+                if (function && *function) {
+                    snprintf(dynamicBuffer, len + 1,
+                             "%s T:%x [%s] [%s] [%s] %s\n",
+                             timestamp,
+                             tid,
+                             location,
+                             function,
+                             tag ? tag : "",
+                             message ? message : "");
+                } else {
+                    snprintf(dynamicBuffer, len + 1,
+                             "%s T:%x [%s] [%s] %s\n",
+                             timestamp,
+                             tid,
+                             location,
+                             tag ? tag : "",
+                             message ? message : "");
+                }
+                logBuffer = dynamicBuffer;
+            } else {
+                LOGE("Failed to allocate memory for long log message");
+            }
+        }
+        
+        // 内存分配失败或非DEBUG级别：截断处理
+        if (dynamicBuffer == nullptr) {
+            len = sizeof(fullMessage) - 1;
+            truncate_log_message(fullMessage, sizeof(fullMessage));
+        }
     }
     
     // 写入日志（直接使用计算出的长度，无需再次 strlen）
-    lz_log_error_t ret = lz_logger_write(handle, fullMessage, (uint32_t)len);
+    lz_log_error_t ret = lz_logger_write(handle, logBuffer, (uint32_t)len);
     
     if (ret != LZ_LOG_SUCCESS) {
         LOGE("Write failed: %s", lz_logger_error_string(ret));
@@ -219,8 +258,13 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
 #ifdef DEBUG
     // Debug 模式下同步输出到 logcat
     const char* levelStr = get_level_string(level);
-    __android_log_print(ANDROID_LOG_INFO, levelStr, "%s", fullMessage);
+    __android_log_print(ANDROID_LOG_INFO, levelStr, "%s", logBuffer);
 #endif
+    
+    // 释放动态分配的内存
+    if (dynamicBuffer != nullptr) {
+        free(dynamicBuffer);
+    }
     
     // 释放字符串
     if (tag) env->ReleaseStringUTFChars(jTag, tag);
@@ -358,6 +402,8 @@ void lz_logger_ffi(int level, const char* tag, const char* function, const char*
     // 格式: yyyy-MM-dd HH:mm:ss.SSS T:1234 [flutter] [func] [tag] message
     //       如果 function 为空，则省略 [func] 字段
     char fullMessage[LOG_MESSAGE_BUFFER_SIZE];
+    char* dynamicBuffer = nullptr;
+    char* logBuffer = fullMessage;
     int len; // snprintf 返回写入的字符数（不包括 null）
     
     if (function && *function) {  // 优化：直接检查指针和首字符，无需 strlen
@@ -377,27 +423,58 @@ void lz_logger_ffi(int level, const char* tag, const char* function, const char*
                        message ? message : "");
     }
     
-    // 处理 snprintf 结果：如果超长则截断，如果出错则跳过
+    // 处理 snprintf 结果：如果出错则跳过
     if (len < 0) {
         LOGE("FFI log formatting error");
         return;
     }
     
-    // 如果超长被截断，添加省略号并保留换行符
+    // 如果超长，根据日志级别决定策略
     if (len >= (int)sizeof(fullMessage)) {
-        len = sizeof(fullMessage) - 1;  // 截断到缓冲区大小（不包括 null）
-        // 覆盖最后4个字符为 "...\n"
-        fullMessage[len - 4] = '.';
-        fullMessage[len - 3] = '.';
-        fullMessage[len - 2] = '.';
-        fullMessage[len - 1] = '\n';
+        // DEBUG级别(level=1)：动态分配内存，完整输出
+        if (level == 1) {
+            dynamicBuffer = (char*)malloc(len + 1);  // +1 for null terminator
+            if (dynamicBuffer != nullptr) {
+                // 重新格式化到动态缓冲区
+                if (function && *function) {
+                    snprintf(dynamicBuffer, len + 1,
+                             "%s T:%x [flutter] [%s] [%s] %s\n",
+                             timestamp,
+                             tid,
+                             function,
+                             tag ? tag : "",
+                             message ? message : "");
+                } else {
+                    snprintf(dynamicBuffer, len + 1,
+                             "%s T:%x [flutter] [%s] %s\n",
+                             timestamp,
+                             tid,
+                             tag ? tag : "",
+                             message ? message : "");
+                }
+                logBuffer = dynamicBuffer;
+            } else {
+                LOGE("Failed to allocate memory for long FFI log message");
+            }
+        }
+        
+        // 内存分配失败或非DEBUG级别：截断处理
+        if (dynamicBuffer == nullptr) {
+            len = sizeof(fullMessage) - 1;
+            truncate_log_message(fullMessage, sizeof(fullMessage));
+        }
     }
     
     // 写入日志（直接使用计算出的长度，无需再次 strlen）
-    lz_log_error_t ret = lz_logger_write(g_ffi_handle, fullMessage, (uint32_t)len);
+    lz_log_error_t ret = lz_logger_write(g_ffi_handle, logBuffer, (uint32_t)len);
     
     if (ret != LZ_LOG_SUCCESS) {
         LOGE("FFI write failed: %s", lz_logger_error_string(ret));
+    }
+    
+    // 释放动态分配的内存
+    if (dynamicBuffer != nullptr) {
+        free(dynamicBuffer);
     }
     
     // 注意：不再输出到 logcat，Dart 层会在 debug 模式用 print() 输出到控制台
