@@ -118,6 +118,13 @@ def read_log_file(file_path: str):
         return salt, encrypted_data, used_size, footer_file_size
 
 
+def remove_trailing_zeros(data: bytes) -> bytes:
+    """
+    移除数据末尾的零字节
+    """
+    return data.rstrip(b'\x00')
+
+
 def decrypt_log_file(input_file: str, output_file: str, password: str):
     """解密日志文件"""
     print(f"正在读取文件: {input_file}")
@@ -138,6 +145,9 @@ def decrypt_log_file(input_file: str, output_file: str, password: str):
     # 解密数据 (数据从文件开头开始,偏移量为0)
     print("正在解密...")
     decrypted_data = decrypt_aes_ctr(key, encrypted_data, offset=0)
+    
+    # 移除尾部填充字节
+    decrypted_data = remove_trailing_zeros(decrypted_data)
     
     # 写入输出文件
     with open(output_file, 'wb') as f:
