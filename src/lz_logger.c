@@ -91,8 +91,6 @@ typedef struct lz_logger_context_t
     char encrypt_key[256];       // 加密密钥
     char current_file_path[768]; // 当前日志文件路径
 
-    int fd; // 文件描述符（仅用于初始化，可以提前关闭）
-
     _Atomic(atomic_uint_least32_t *) cur_offset_ptr; // 原子指针：指向当前 offset（footer中的used_size字段）
     _Atomic(atomic_uint_least32_t *) old_offset_ptr; // 旧文件的offset指针（延迟销毁）
 
@@ -548,6 +546,7 @@ lz_log_error_t lz_logger_open(const char *log_dir,
     lz_log_error_t ret = LZ_LOG_SUCCESS;
     int32_t inner_error = 0;
     int32_t sys_errno = 0;
+    int fd = -1;
 
     do
     {
@@ -575,7 +574,6 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         }
 
         // 初始化字段（calloc 已经清零，这里设置特殊值）
-        ctx->fd = -1;
         atomic_store(&ctx->old_offset_ptr, NULL);
 
         // 初始化互斥锁
@@ -622,8 +620,6 @@ lz_log_error_t lz_logger_open(const char *log_dir,
         // 尝试打开已存在的文件或创建新文件
         int file_num = (max_num >= 0) ? max_num : 0;
         uint32_t used_size = 0;
-        int fd = -1;
-
         if (max_num >= 0)
         {
             // 尝试打开已存在的文件
@@ -659,8 +655,6 @@ lz_log_error_t lz_logger_open(const char *log_dir,
             used_size = 0; // 新文件初始偏移为0
         }
 
-        ctx->fd = fd;
-
         // 执行 mmap 映射
         atomic_uint_least32_t *offset_ptr = NULL;
         ret = do_mmap_mapping(fd, ctx->max_file_size, &offset_ptr);
@@ -670,6 +664,10 @@ lz_log_error_t lz_logger_open(const char *log_dir,
             LZ_DEBUG_LOG("Failed to mmap: %d, errno=%d", ret, sys_errno);
             break;
         }
+
+        // mmap 完成后即可关闭文件描述符
+        close(fd);
+        fd = -1;
 
         // 原子初始化 cur_offset_ptr
         atomic_store(&ctx->cur_offset_ptr, offset_ptr);
@@ -729,6 +727,12 @@ lz_log_error_t lz_logger_open(const char *log_dir,
 
     } while (0);
 
+    if (fd >= 0)
+    {
+        close(fd);
+        fd = -1;
+    }
+
     // 错误处理：清理资源
     if (ret != LZ_LOG_SUCCESS)
     {
@@ -742,10 +746,6 @@ lz_log_error_t lz_logger_open(const char *log_dir,
                 void *mmap_base = get_mmap_base_from_offset_ptr(offset_ptr);
                 uint32_t file_size = get_file_size_from_offset_ptr(offset_ptr);
                 munmap(mmap_base, file_size);
-            }
-            if (ctx->fd >= 0)
-            {
-                close(ctx->fd);
             }
             // 只有在成功初始化后才销毁 mutex
             // calloc 已清零，检查 log_dir 是否被设置来判断 mutex 是否已初始化
