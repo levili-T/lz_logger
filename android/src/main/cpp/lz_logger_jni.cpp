@@ -129,6 +129,21 @@ Java_io_levili_lzlogger_LzLogger_nativeSetFfiHandle(
 }
 
 /**
+ * 动态设置日志级别（同步更新 FFI 全局变量）
+ */
+JNIEXPORT void JNICALL
+Java_io_levili_lzlogger_LzLogger_nativeSetLogLevel(
+        JNIEnv* /* env */,
+        jobject /* this */,
+        jint jLogLevel) {
+    
+    extern int g_ffi_log_level;
+    g_ffi_log_level = jLogLevel;
+    
+    LOGI("FFI log level updated: %d", jLogLevel);
+}
+
+/**
  * 写入日志
  */
 JNIEXPORT void JNICALL
@@ -172,8 +187,11 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
         snprintf(location, sizeof(location), "%s", fileName);
     }
     
+    // 获取日志级别字符串
+    const char* levelStr = get_level_string(level);
+    
     // 构建完整日志消息
-    // 格式: yyyy-MM-dd HH:mm:ss.SSS T:1234 [file:line] [func] [tag] message
+    // 格式: yyyy-MM-dd HH:mm:ss.SSS [LEVEL] T:1234 [file:line] [func] [tag] message
     //       如果 function 为空，则省略 [func] 字段
     char fullMessage[LOG_MESSAGE_BUFFER_SIZE];
     char* dynamicBuffer = nullptr;
@@ -182,8 +200,9 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
     
     if (function && *function) {  // 优化：直接检查指针和首字符，无需 strlen
         len = snprintf(fullMessage, sizeof(fullMessage),
-                       "%s T:%x [%s] [%s] [%s] %s\n",
+                       "%s [%s] T:%x [%s] [%s] [%s] %s\n",
                        timestamp,
+                       levelStr,
                        tid,
                        location,
                        function,
@@ -191,8 +210,9 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
                        message ? message : "");
     } else {
         len = snprintf(fullMessage, sizeof(fullMessage),
-                       "%s T:%x [%s] [%s] %s\n",
+                       "%s [%s] T:%x [%s] [%s] %s\n",
                        timestamp,
+                       levelStr,
                        tid,
                        location,
                        tag ? tag : "",
@@ -219,8 +239,9 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
                 // 重新格式化到动态缓冲区
                 if (function && *function) {
                     snprintf(dynamicBuffer, len + 1,
-                             "%s T:%x [%s] [%s] [%s] %s\n",
+                             "%s [%s] T:%x [%s] [%s] [%s] %s\n",
                              timestamp,
+                             levelStr,
                              tid,
                              location,
                              function,
@@ -228,8 +249,9 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
                              message ? message : "");
                 } else {
                     snprintf(dynamicBuffer, len + 1,
-                             "%s T:%x [%s] [%s] %s\n",
+                             "%s [%s] T:%x [%s] [%s] %s\n",
                              timestamp,
+                             levelStr,
                              tid,
                              location,
                              tag ? tag : "",
@@ -257,7 +279,6 @@ Java_io_levili_lzlogger_LzLogger_nativeLog(
     
 #ifdef DEBUG
     // Debug 模式下同步输出到 logcat
-    const char* levelStr = get_level_string(level);
     __android_log_print(ANDROID_LOG_INFO, levelStr, "%s", logBuffer);
 #endif
     

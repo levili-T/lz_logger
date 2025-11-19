@@ -212,15 +212,15 @@
         : [NSString stringWithUTF8String:fileName];
     
     // 根据 function 是否为空决定日志格式
-    // 格式: yyyy-MM-dd HH:mm:ss.SSS T:1234 [file:line] [func] [tag] xxx
+    // 格式: yyyy-MM-dd HH:mm:ss.SSS [LEVEL] T:1234 [file:line] [func] [tag] xxx
     //       如果 function 为空，则省略 [func] 字段
     NSString *fullMessage;
     if (function && strlen(function) > 0) {
-        fullMessage = [NSString stringWithFormat:@"%s T:%llx [%@] [%s] [%@] %@\n",
-                       timestamp, tid, location, function, tag ?: @"", message];
+        fullMessage = [NSString stringWithFormat:@"%s [%s] T:%llx [%@] [%s] [%@] %@\n",
+                       timestamp, levelStr, tid, location, function, tag ?: @"", message];
     } else {
-        fullMessage = [NSString stringWithFormat:@"%s T:%llx [%@] [%@] %@\n",
-                       timestamp, tid, location, tag ?: @"", message];
+        fullMessage = [NSString stringWithFormat:@"%s [%s] T:%llx [%@] [%@] %@\n",
+                       timestamp, levelStr, tid, location, tag ?: @"", message];
     }
     
     // 写入日志
