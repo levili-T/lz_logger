@@ -84,19 +84,19 @@ void lzLog({
 String _getLevelName(int level) {
   switch (level) {
     case LzLogLevel.verbose:
-      return 'V';
+      return 'VERBOSE';
     case LzLogLevel.debug:
-      return 'D';
+      return 'DEBUG';
     case LzLogLevel.info:
-      return 'I';
+      return 'INFO';
     case LzLogLevel.warn:
-      return 'W';
+      return 'WARN';
     case LzLogLevel.error:
-      return 'E';
+      return 'ERROR';
     case LzLogLevel.fatal:
-      return 'F';
+      return 'FATAL';
     default:
-      return '?';
+      return 'UNKNOWN';
   }
 }
 
