@@ -260,6 +260,59 @@ static void build_log_file_path(const char *log_dir,
 }
 
 /**
+ * 预分配文件空间（防止 SIGBUS）
+ * @param fd 文件描述符
+ * @param size 文件大小
+ * @return 错误码
+ */
+static lz_log_error_t lz_file_preallocate(int fd, uint32_t size)
+{
+#if defined(__ANDROID__) || defined(__linux__)
+    // Linux/Android: 使用 fallocate 直接分配物理块
+    if (fallocate(fd, 0, 0, size) != 0)
+    {
+        // 如果文件系统不支持 (如某些旧的 FAT32)，回退到 ftruncate
+        if (errno == EOPNOTSUPP)
+        {
+            if (ftruncate(fd, size) != 0)
+            {
+                return LZ_LOG_ERROR_FILE_EXTEND;
+            }
+        }
+        else
+        {
+            return LZ_LOG_ERROR_FILE_EXTEND;
+        }
+    }
+#elif defined(__APPLE__)
+    // macOS/iOS: 使用 fcntl F_PREALLOCATE
+    fstore_t store = {F_ALLOCATECONTIG, F_PEOFPOSMODE, 0, size};
+    // 尝试连续分配
+    if (fcntl(fd, F_PREALLOCATE, &store) == -1)
+    {
+        // 如果连续分配失败，尝试非连续分配
+        store.fst_flags = F_ALLOCATEALL;
+        if (fcntl(fd, F_PREALLOCATE, &store) == -1)
+        {
+            // 预分配失败，继续尝试 ftruncate
+        }
+    }
+    // macOS 需要显式调用 ftruncate 更新文件大小
+    if (ftruncate(fd, size) != 0)
+    {
+        return LZ_LOG_ERROR_FILE_EXTEND;
+    }
+#else
+    // 其他平台：默认使用 ftruncate
+    if (ftruncate(fd, size) != 0)
+    {
+        return LZ_LOG_ERROR_FILE_EXTEND;
+    }
+#endif
+    return LZ_LOG_SUCCESS;
+}
+
+/**
  * 创建并扩展日志文件
  * @param file_path 文件路径
  * @param file_size 文件大小
@@ -284,10 +337,10 @@ static lz_log_error_t create_and_extend_file(const char *file_path,
             break;
         }
 
-        // 扩展文件大小（使用 ftruncate）
-        if (ftruncate(fd, file_size) != 0)
+        // 扩展文件大小（使用预分配防止 SIGBUS）
+        ret = lz_file_preallocate(fd, file_size);
+        if (ret != LZ_LOG_SUCCESS)
         {
-            ret = LZ_LOG_ERROR_FILE_EXTEND;
             break;
         }
 
