@@ -38,9 +38,24 @@ typedef _LzLoggerFfiDart = void Function(
   ffi.Pointer<ffi.Char> message,
 );
 
-final _LzLoggerFfiDart _lzLoggerFfi = _dylib
-    .lookup<ffi.NativeFunction<_LzLoggerFfiNative>>('lz_logger_ffi')
-    .asFunction();
+/// iOS Release archive 时函数符号会被 strip，但 __DATA,__objc_const 段的变量不会。
+/// 通过 lookup 指针变量 lz_logger_ffi_ptr，读取其值获得函数地址。
+_LzLoggerFfiDart _lookupFfi() {
+  if (Platform.isIOS) {
+    // iOS: lookup 指针变量，读取函数地址
+    // lz_logger_ffi_ptr 是一个 void* 指向 lz_logger_ffi 函数
+    final ptrToPtr = _dylib.lookup<ffi.Pointer<ffi.Void>>('lz_logger_ffi_ptr');
+    final funcAddr = ptrToPtr.value.address;
+    return ffi.Pointer<ffi.NativeFunction<_LzLoggerFfiNative>>.fromAddress(funcAddr)
+        .asFunction();
+  }
+  // 其他平台直接 lookup 函数符号
+  return _dylib
+      .lookup<ffi.NativeFunction<_LzLoggerFfiNative>>('lz_logger_ffi')
+      .asFunction();
+}
+
+final _LzLoggerFfiDart _lzLoggerFfi = _lookupFfi();
 
 /// Log levels matching iOS LZLogLevel enum
 class LzLogLevel {
