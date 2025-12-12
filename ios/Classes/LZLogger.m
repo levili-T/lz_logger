@@ -363,6 +363,12 @@
     }
 }
 
+// 返回 FFI 函数指针，供 Dart 初始化时通过 ObjC runtime 调用一次获取
++ (void *)ffiPointer {
+    extern void lz_logger_ffi(int, const char*, const char*, const char*);
+    return (void *)&lz_logger_ffi;
+}
+
 @end
 
 
@@ -383,9 +389,3 @@ void lz_logger_ffi(int loglevel, const char* tag, const char* function, const ch
                                tag:nsTag
                             format:@"%@", nsMessage];
 }
-
-// 导出函数指针变量到 __DATA,__objc_const 段
-// 该段是 Objective-C runtime 必需的，不会被 strip 工具裁剪
-// Dart 通过 dlsym 找到此指针变量，读取其值获得函数地址
-__attribute__((visibility("default"), used, section("__DATA,__objc_const")))
-void* const lz_logger_ffi_ptr = (void*)&lz_logger_ffi;

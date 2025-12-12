@@ -20,6 +20,12 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
 + (instancetype)sharedInstance;
 
 /**
+ * 获取 FFI 函数指针地址（供 Dart 初始化时调用一次）
+ * @return lz_logger_ffi 函数的地址
+ */
++ (void *)ffiPointer;
+
+/**
  * 禁用 init 方法
  */
 - (instancetype)init NS_UNAVAILABLE;

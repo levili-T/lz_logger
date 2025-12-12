@@ -38,15 +38,41 @@ typedef _LzLoggerFfiDart = void Function(
   ffi.Pointer<ffi.Char> message,
 );
 
-/// iOS Release archive 时函数符号会被 strip，但 __DATA,__objc_const 段的变量不会。
-/// 通过 lookup 指针变量 lz_logger_ffi_ptr，读取其值获得函数地址。
+// ObjC runtime types for calling [LZLogger ffiPointer]
+typedef _ObjcGetClassNative = ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Char>);
+typedef _ObjcGetClassDart = ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Char>);
+typedef _SelRegisterNameNative = ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Char>);
+typedef _SelRegisterNameDart = ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Char>);
+typedef _ObjcMsgSendNative = ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Void>);
+typedef _ObjcMsgSendDart = ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Void>);
+
+/// iOS: 通过 ObjC runtime 调用 [LZLogger ffiPointer] 获取函数地址
+/// 因为 strip 会移除 C 函数符号，但 ObjC 类方法符号会保留
 _LzLoggerFfiDart _lookupFfi() {
   if (Platform.isIOS) {
-    // iOS: lookup 指针变量，读取函数地址
-    // lz_logger_ffi_ptr 是一个 void* 指向 lz_logger_ffi 函数
-    final ptrToPtr = _dylib.lookup<ffi.Pointer<ffi.Void>>('lz_logger_ffi_ptr');
-    final funcAddr = ptrToPtr.value.address;
-    return ffi.Pointer<ffi.NativeFunction<_LzLoggerFfiNative>>.fromAddress(funcAddr)
+    // 获取 ObjC runtime 函数
+    final objcGetClass = _dylib
+        .lookup<ffi.NativeFunction<_ObjcGetClassNative>>('objc_getClass')
+        .asFunction<_ObjcGetClassDart>();
+    final selRegisterName = _dylib
+        .lookup<ffi.NativeFunction<_SelRegisterNameNative>>('sel_registerName')
+        .asFunction<_SelRegisterNameDart>();
+    final objcMsgSend = _dylib
+        .lookup<ffi.NativeFunction<_ObjcMsgSendNative>>('objc_msgSend')
+        .asFunction<_ObjcMsgSendDart>();
+
+    // 调用 [LZLogger ffiPointer]
+    final classNamePtr = 'LZLogger'.toNativeUtf8();
+    final selectorPtr = 'ffiPointer'.toNativeUtf8();
+    
+    final cls = objcGetClass(classNamePtr.cast());
+    final sel = selRegisterName(selectorPtr.cast());
+    final funcPtr = objcMsgSend(cls, sel);
+    
+    calloc.free(classNamePtr);
+    calloc.free(selectorPtr);
+    
+    return ffi.Pointer<ffi.NativeFunction<_LzLoggerFfiNative>>.fromAddress(funcPtr.address)
         .asFunction();
   }
   // 其他平台直接 lookup 函数符号
