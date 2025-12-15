@@ -139,20 +139,20 @@
         CFAbsoluteTime endTime = CFAbsoluteTimeGetCurrent();
         double elapsedMs = (endTime - startTime) * 1000.0;
         
-        [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:__LINE__ 
+        [self log:LZLogLevelInfo file:LZ_FILE_NAME function:__FUNCTION__ line:__LINE__ 
               tag:@"LZLogger" format:@"Initialized successfully in %.2fms, path: %@", elapsedMs, logDir];
         
         // 3秒后在低优先级线程清理7天前的日志
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
                        dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
-            [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:0 
+            [self log:LZLogLevelInfo file:LZ_FILE_NAME function:__FUNCTION__ line:0 
                   tag:@"LZLogger" format:@"Starting cleanup of expired logs (7 days)"];
             BOOL cleanupSuccess = [self cleanupExpiredLogs:7];
             if (cleanupSuccess) {
-                [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:0 
+                [self log:LZLogLevelInfo file:LZ_FILE_NAME function:__FUNCTION__ line:0 
                       tag:@"LZLogger" format:@"Cleanup completed successfully"];
             } else {
-                [self log:LZLogLevelWarn file:__FILE__ function:__FUNCTION__ line:0 
+                [self log:LZLogLevelWarn file:LZ_FILE_NAME function:__FUNCTION__ line:0 
                       tag:@"LZLogger" format:@"Cleanup failed"];
             }
         });
@@ -291,12 +291,12 @@
     lz_log_error_t ret = lz_logger_export_current_log(self.handle, exportPath, sizeof(exportPath));
     
     if (ret != LZ_LOG_SUCCESS) {
-        [self log:LZLogLevelError file:__FILE__ function:__FUNCTION__ line:__LINE__ 
+        [self log:LZLogLevelError file:LZ_FILE_NAME function:__FUNCTION__ line:__LINE__ 
               tag:@"LZLogger" format:@"Export failed: %s", lz_logger_error_string(ret)];
         return nil;
     }
     
-    [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:__LINE__ 
+    [self log:LZLogLevelInfo file:LZ_FILE_NAME function:__FUNCTION__ line:__LINE__ 
           tag:@"LZLogger" format:@"Export completed: %s", exportPath];
     return [NSString stringWithUTF8String:exportPath];
 }
@@ -311,7 +311,7 @@
     
     if (ret != LZ_LOG_SUCCESS) {
         if (self.isInitialized) {
-            [self log:LZLogLevelError file:__FILE__ function:__FUNCTION__ line:__LINE__ 
+            [self log:LZLogLevelError file:LZ_FILE_NAME function:__FUNCTION__ line:__LINE__ 
                   tag:@"LZLogger" format:@"Cleanup failed: %s", lz_logger_error_string(ret)];
         }
         return NO;
@@ -336,7 +336,7 @@
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
     if (self.isInitialized) {
-        [self log:LZLogLevelInfo file:__FILE__ function:__FUNCTION__ line:0 
+        [self log:LZLogLevelInfo file:LZ_FILE_NAME function:__FUNCTION__ line:0 
               tag:@"LZLogger" format:@"Application will terminate, closing logger"];
     }
     [self close];

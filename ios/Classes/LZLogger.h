@@ -120,11 +120,37 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
 
 @end
 
+// MARK: - 编译期文件名宏
+
+/**
+ * LZ_FILE_NAME - 编译期获取文件名（不含路径）
+ * Clang 9+ 支持 __FILE_NAME__，在编译期展开为纯文件名
+ * 对于不支持的编译器，使用 strrchr 提取文件名
+ * （编译器会对字符串常量 __FILE__ 进行常量折叠优化，实际在编译期计算）
+ */
+#ifndef LZ_FILE_NAME
+  #ifdef __FILE_NAME__
+    // Clang provides just the last path component
+    #define LZ_FILE_NAME __FILE_NAME__
+  #elif defined(__has_builtin)
+    #if __has_builtin(__builtin_strrchr)
+      // Handle both UNIX ('/') and Windows ('\\') separators
+      #define LZ_FILE_NAME ( \
+        __builtin_strrchr(__FILE__, '/')  ? __builtin_strrchr(__FILE__, '/')  + 1 : \
+        (__builtin_strrchr(__FILE__, '\\') ? __builtin_strrchr(__FILE__, '\\') + 1 : __FILE__) )
+    #else
+      #define LZ_FILE_NAME __FILE__
+    #endif
+  #else
+    #define LZ_FILE_NAME __FILE__
+  #endif
+#endif
+
 // MARK: - 便捷日志宏
 
 #define LZ_LOG_VERBOSE(tag, format, ...) \
     [[LZLogger sharedInstance] log:LZLogLevelVerbose \
-                              file:__FILE__ \
+                              file:LZ_FILE_NAME \
                           function:__FUNCTION__ \
                               line:__LINE__ \
                                tag:tag \
@@ -132,7 +158,7 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
 
 #define LZ_LOG_DEBUG(tag, format, ...) \
     [[LZLogger sharedInstance] log:LZLogLevelDebug \
-                              file:__FILE__ \
+                              file:LZ_FILE_NAME \
                           function:__FUNCTION__ \
                               line:__LINE__ \
                                tag:tag \
@@ -140,7 +166,7 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
 
 #define LZ_LOG_INFO(tag, format, ...) \
     [[LZLogger sharedInstance] log:LZLogLevelInfo \
-                              file:__FILE__ \
+                              file:LZ_FILE_NAME \
                           function:__FUNCTION__ \
                               line:__LINE__ \
                                tag:tag \
@@ -148,7 +174,7 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
 
 #define LZ_LOG_WARN(tag, format, ...) \
     [[LZLogger sharedInstance] log:LZLogLevelWarn \
-                              file:__FILE__ \
+                              file:LZ_FILE_NAME \
                           function:__FUNCTION__ \
                               line:__LINE__ \
                                tag:tag \
@@ -156,7 +182,7 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
 
 #define LZ_LOG_ERROR(tag, format, ...) \
     [[LZLogger sharedInstance] log:LZLogLevelError \
-                              file:__FILE__ \
+                              file:LZ_FILE_NAME \
                           function:__FUNCTION__ \
                               line:__LINE__ \
                                tag:tag \
@@ -164,7 +190,7 @@ typedef NS_ENUM(NSInteger, LZLogLevel) {
 
 #define LZ_LOG_FATAL(tag, format, ...) \
     [[LZLogger sharedInstance] log:LZLogLevelFatal \
-                              file:__FILE__ \
+                              file:LZ_FILE_NAME \
                           function:__FUNCTION__ \
                               line:__LINE__ \
                                tag:tag \
