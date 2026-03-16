@@ -1438,16 +1438,16 @@ FFI_PLUGIN_EXPORT lz_log_error_t lz_logger_cleanup_expired_logs(
 
         // 获取当前日期
         time_t now = time(NULL);
-        struct tm *tm_now = localtime(&now);
-        if (tm_now == NULL)
+        struct tm tm_now;
+        if (localtime_r(&now, &tm_now) == NULL)
         {
             ret = LZ_LOG_ERROR_SYSTEM;
             break;
         }
 
-        int current_year = tm_now->tm_year + 1900;
-        int current_month = tm_now->tm_mon + 1;
-        int current_day = tm_now->tm_mday;
+        int current_year = tm_now.tm_year + 1900;
+        int current_month = tm_now.tm_mon + 1;
+        int current_day = tm_now.tm_mday;
 
         // 打开目录
         dir = opendir(log_dir);
