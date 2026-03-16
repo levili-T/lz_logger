@@ -56,22 +56,25 @@ int lz_crypto_jni_init(JNIEnv *env, JavaVM *jvm) {
 }
 
 // 获取 JNIEnv (线程安全)
-static JNIEnv* get_jni_env() {
+// out_attached: 若本次调用执行了 AttachCurrentThread，则置为 1，调用方用完后需 DetachCurrentThread
+static JNIEnv* get_jni_env(int *out_attached) {
+    *out_attached = 0;
     if (!g_jvm) {
         return NULL;
     }
-    
+
     JNIEnv *env = NULL;
     int status = (*g_jvm)->GetEnv(g_jvm, (void**)&env, JNI_VERSION_1_6);
-    
+
     if (status == JNI_EDETACHED) {
         // 当前线程未附加到 JVM, 需要附加
         status = (*g_jvm)->AttachCurrentThread(g_jvm, &env, NULL);
         if (status != JNI_OK) {
             return NULL;
         }
+        *out_attached = 1;
     }
-    
+
     return env;
 }
 #endif
@@ -104,47 +107,51 @@ int lz_crypto_derive_key(
 
 #elif defined(__ANDROID__)
     // Android: 通过 JNI 调用 Java
-    JNIEnv *env = get_jni_env();
+    int attached = 0;
+    JNIEnv *env = get_jni_env(&attached);
     if (!env || !g_crypto_helper_class || !g_derive_key_method) {
         return -1;
     }
-    
-    // 创建 Java String
-    jstring j_password = (*env)->NewStringUTF(env, password);
-    if (!j_password) {
-        return -1;
-    }
-    
-    // 创建 Java byte[] (salt)
-    jbyteArray j_salt = (*env)->NewByteArray(env, LZ_CRYPTO_SALT_SIZE);
-    if (!j_salt) {
+
+    int result = -1;
+
+    do {
+        // 创建 Java String
+        jstring j_password = (*env)->NewStringUTF(env, password);
+        if (!j_password) {
+            break;
+        }
+
+        // 创建 Java byte[] (salt)
+        jbyteArray j_salt = (*env)->NewByteArray(env, LZ_CRYPTO_SALT_SIZE);
+        if (!j_salt) {
+            (*env)->DeleteLocalRef(env, j_password);
+            break;
+        }
+        (*env)->SetByteArrayRegion(env, j_salt, 0, LZ_CRYPTO_SALT_SIZE, (const jbyte*)salt);
+
+        // 调用 Java 方法
+        jbyteArray j_key = (jbyteArray)(*env)->CallStaticObjectMethod(env, g_crypto_helper_class,
+            g_derive_key_method, j_password, j_salt);
+
         (*env)->DeleteLocalRef(env, j_password);
-        return -1;
-    }
-    (*env)->SetByteArrayRegion(env, j_salt, 0, LZ_CRYPTO_SALT_SIZE, (const jbyte*)salt);
-    
-    // 调用 Java 方法
-    jbyteArray j_key = (jbyteArray)(*env)->CallStaticObjectMethod(env, g_crypto_helper_class, 
-        g_derive_key_method, j_password, j_salt);
-    
-    (*env)->DeleteLocalRef(env, j_password);
-    (*env)->DeleteLocalRef(env, j_salt);
-    
-    if (!j_key) {
-        return -1;
-    }
-    
-    // 获取结果
-    jsize key_len = (*env)->GetArrayLength(env, j_key);
-    if (key_len != LZ_CRYPTO_KEY_SIZE) {
+        (*env)->DeleteLocalRef(env, j_salt);
+
+        if (!j_key) {
+            break;
+        }
+
+        // 获取结果
+        jsize key_len = (*env)->GetArrayLength(env, j_key);
+        if (key_len == LZ_CRYPTO_KEY_SIZE) {
+            (*env)->GetByteArrayRegion(env, j_key, 0, LZ_CRYPTO_KEY_SIZE, (jbyte*)out_key);
+            result = 0;
+        }
         (*env)->DeleteLocalRef(env, j_key);
-        return -1;
-    }
-    
-    (*env)->GetByteArrayRegion(env, j_key, 0, LZ_CRYPTO_KEY_SIZE, (jbyte*)out_key);
-    (*env)->DeleteLocalRef(env, j_key);
-    
-    return 0;
+    } while (0);
+
+    if (attached) (*g_jvm)->DetachCurrentThread(g_jvm);
+    return result;
 
 #else
     // 其他平台: 使用 OpenSSL
@@ -176,30 +183,34 @@ int lz_crypto_generate_salt(uint8_t *salt) {
 
 #elif defined(__ANDROID__)
     // Android: 通过 JNI 调用 Java
-    JNIEnv *env = get_jni_env();
+    int attached = 0;
+    JNIEnv *env = get_jni_env(&attached);
     if (!env || !g_crypto_helper_class || !g_generate_salt_method) {
         return -1;
     }
-    
-    // 调用 Java 方法
-    jbyteArray j_salt = (jbyteArray)(*env)->CallStaticObjectMethod(env, g_crypto_helper_class, 
-        g_generate_salt_method);
-    
-    if (!j_salt) {
-        return -1;
-    }
-    
-    // 获取结果
-    jsize salt_len = (*env)->GetArrayLength(env, j_salt);
-    if (salt_len != LZ_CRYPTO_SALT_SIZE) {
+
+    int result = -1;
+
+    do {
+        // 调用 Java 方法
+        jbyteArray j_salt = (jbyteArray)(*env)->CallStaticObjectMethod(env, g_crypto_helper_class,
+            g_generate_salt_method);
+
+        if (!j_salt) {
+            break;
+        }
+
+        // 获取结果
+        jsize salt_len = (*env)->GetArrayLength(env, j_salt);
+        if (salt_len == LZ_CRYPTO_SALT_SIZE) {
+            (*env)->GetByteArrayRegion(env, j_salt, 0, LZ_CRYPTO_SALT_SIZE, (jbyte*)salt);
+            result = 0;
+        }
         (*env)->DeleteLocalRef(env, j_salt);
-        return -1;
-    }
-    
-    (*env)->GetByteArrayRegion(env, j_salt, 0, LZ_CRYPTO_SALT_SIZE, (jbyte*)salt);
-    (*env)->DeleteLocalRef(env, j_salt);
-    
-    return 0;
+    } while (0);
+
+    if (attached) (*g_jvm)->DetachCurrentThread(g_jvm);
+    return result;
 
 #else
     // 其他平台: 使用 OpenSSL
@@ -326,48 +337,52 @@ int lz_crypto_process(
 
 #elif defined(__ANDROID__)
     // Android: 通过 JNI 调用 Java
-    JNIEnv *env = get_jni_env();
+    int attached = 0;
+    JNIEnv *env = get_jni_env(&attached);
     if (!env || !g_crypto_helper_class || !g_process_aes_ctr_method) {
         return -1;
     }
-    
-    // 创建 Java byte[] (key)
-    jbyteArray j_key = (*env)->NewByteArray(env, LZ_CRYPTO_KEY_SIZE);
-    if (!j_key) {
-        return -1;
-    }
-    (*env)->SetByteArrayRegion(env, j_key, 0, LZ_CRYPTO_KEY_SIZE, (const jbyte*)ctx->key);
-    
-    // 创建 Java byte[] (data)
-    jbyteArray j_data = (*env)->NewByteArray(env, (jsize)length);
-    if (!j_data) {
+
+    int result = -1;
+
+    do {
+        // 创建 Java byte[] (key)
+        jbyteArray j_key = (*env)->NewByteArray(env, LZ_CRYPTO_KEY_SIZE);
+        if (!j_key) {
+            break;
+        }
+        (*env)->SetByteArrayRegion(env, j_key, 0, LZ_CRYPTO_KEY_SIZE, (const jbyte*)ctx->key);
+
+        // 创建 Java byte[] (data)
+        jbyteArray j_data = (*env)->NewByteArray(env, (jsize)length);
+        if (!j_data) {
+            (*env)->DeleteLocalRef(env, j_key);
+            break;
+        }
+        (*env)->SetByteArrayRegion(env, j_data, 0, (jsize)length, (const jbyte*)input);
+
+        // 调用 Java 方法 (注意: offset 需要考虑块内偏移)
+        jbyteArray j_result = (jbyteArray)(*env)->CallStaticObjectMethod(env, g_crypto_helper_class,
+            g_process_aes_ctr_method, j_key, j_data, (jlong)offset);
+
         (*env)->DeleteLocalRef(env, j_key);
-        return -1;
-    }
-    (*env)->SetByteArrayRegion(env, j_data, 0, (jsize)length, (const jbyte*)input);
-    
-    // 调用 Java 方法 (注意: offset 需要考虑块内偏移)
-    jbyteArray j_result = (jbyteArray)(*env)->CallStaticObjectMethod(env, g_crypto_helper_class, 
-        g_process_aes_ctr_method, j_key, j_data, (jlong)offset);
-    
-    (*env)->DeleteLocalRef(env, j_key);
-    (*env)->DeleteLocalRef(env, j_data);
-    
-    if (!j_result) {
-        return -1;
-    }
-    
-    // 获取结果
-    jsize result_len = (*env)->GetArrayLength(env, j_result);
-    if (result_len != (jsize)length) {
+        (*env)->DeleteLocalRef(env, j_data);
+
+        if (!j_result) {
+            break;
+        }
+
+        // 获取结果
+        jsize result_len = (*env)->GetArrayLength(env, j_result);
+        if (result_len == (jsize)length) {
+            (*env)->GetByteArrayRegion(env, j_result, 0, (jsize)length, (jbyte*)output);
+            result = 0;
+        }
         (*env)->DeleteLocalRef(env, j_result);
-        return -1;
-    }
-    
-    (*env)->GetByteArrayRegion(env, j_result, 0, (jsize)length, (jbyte*)output);
-    (*env)->DeleteLocalRef(env, j_result);
-    
-    return 0;
+    } while (0);
+
+    if (attached) (*g_jvm)->DetachCurrentThread(g_jvm);
+    return result;
 
 #else
     // 其他平台: 使用 OpenSSL
