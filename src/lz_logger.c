@@ -152,8 +152,9 @@ static void get_current_date_string(char *out_date, size_t buf_size)
 {
     memset(out_date, 0, buf_size);
     time_t now = time(NULL);
-    struct tm *tm_info = localtime(&now);
-    strftime(out_date, buf_size, "%Y-%m-%d", tm_info);
+    struct tm tm_info;
+    localtime_r(&now, &tm_info);
+    strftime(out_date, buf_size, "%Y-%m-%d", &tm_info);
 }
 
 /**
@@ -903,7 +904,7 @@ static lz_log_error_t encrypt_data(lz_logger_context_t *ctx,
         len,
         offset);
 
-    return (result == 0) ? LZ_LOG_SUCCESS : LZ_LOG_ERROR_DIR_ACCESS; // 复用错误码
+    return (result == 0) ? LZ_LOG_SUCCESS : LZ_LOG_ERROR_FILE_WRITE;
 }
 
 /**
