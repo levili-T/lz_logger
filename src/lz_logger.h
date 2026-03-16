@@ -39,6 +39,7 @@ typedef enum {
     LZ_LOG_ERROR_HANDLE_CLOSED = -14,     // 句柄已关闭
     LZ_LOG_ERROR_FILE_SWITCH = -15,       // 文件切换失败
     LZ_LOG_ERROR_MUTEX_LOCK = -16,        // 互斥锁失败
+    LZ_LOG_ERROR_ENCRYPT = -17,          // 加密失败
     LZ_LOG_ERROR_SYSTEM = -100,           // 系统错误（携带errno）
 } lz_log_error_t;
 

@@ -867,6 +867,8 @@ const char *lz_logger_error_string(lz_log_error_t error)
         return "File switch failed";
     case LZ_LOG_ERROR_MUTEX_LOCK:
         return "Mutex lock failed";
+    case LZ_LOG_ERROR_ENCRYPT:
+        return "Encryption failed";
     case LZ_LOG_ERROR_SYSTEM:
         return "System error";
     default:
@@ -904,7 +906,7 @@ static lz_log_error_t encrypt_data(lz_logger_context_t *ctx,
         len,
         offset);
 
-    return (result == 0) ? LZ_LOG_SUCCESS : LZ_LOG_ERROR_FILE_WRITE;
+    return (result == 0) ? LZ_LOG_SUCCESS : LZ_LOG_ERROR_ENCRYPT;
 }
 
 /**
