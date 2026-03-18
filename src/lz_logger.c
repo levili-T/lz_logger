@@ -196,51 +196,48 @@ static lz_log_error_t check_directory_access(const char *dir_path)
 }
 
 /**
- * 查找今日最新的日志文件编号（优化版：顺序查找而非遍历目录）
- * @param log_dir 日志目录
+ * 查找今日最近写入的日志文件编号（按 mtime 比较）
+ *
+ * 循环缓冲区下，编号最大 ≠ 最新写入（例如写入顺序 0→1→2→3→4→0→1，
+ * 最新文件是 1，但编号最大的是 4）。必须用修改时间而非编号大小来判断。
+ *
+ * @param log_dir     日志目录
  * @param date_prefix 日期前缀（如 "2025-10-30"）
- * @param out_max_num 输出最大编号（如果不存在返回-1）
+ * @param out_file_num 输出文件编号（不存在返回 -1）
  * @return 错误码
  */
-static lz_log_error_t find_latest_log_number(const char *log_dir,
-                                             const char *date_prefix,
-                                             int *out_max_num)
+static lz_log_error_t find_latest_log_file_by_mtime(const char *log_dir,
+                                                     const char *date_prefix,
+                                                     int *out_file_num)
 {
-    lz_log_error_t ret = LZ_LOG_SUCCESS;
-    int max_num = -1;
+    int best_num = -1;
+    time_t best_mtime = 0;
     char file_path[768];
     struct stat st;
 
-    do
+    for (int i = 0; i < LZ_LOG_MAX_DAILY_FILES; i++)
     {
-        // 从 0 开始顺序查找，找到最后一个存在的文件
-        for (int i = 0; i < LZ_LOG_MAX_DAILY_FILES; i++)
+        int written = snprintf(file_path, sizeof(file_path),
+                               "%s%c%s-%d.log",
+                               log_dir, PATH_SEPARATOR, date_prefix, i);
+        if (written < 0 || written >= (int)sizeof(file_path))
         {
-            // 构造文件路径
-            int written = snprintf(file_path, sizeof(file_path),
-                                   "%s%c%s-%d.log",
-                                   log_dir, PATH_SEPARATOR, date_prefix, i);
-
-            if (written < 0 || written >= (int)sizeof(file_path))
-            {
-                ret = LZ_LOG_ERROR_INVALID_PARAM;
-                break;
-            }
-
-            // 检查文件是否存在
-            if (stat(file_path, &st) == 0)
-            {
-                max_num = i; // 更新最大编号
-            }
+            continue;
         }
 
-        *out_max_num = max_num;
+        if (stat(file_path, &st) == 0)
+        {
+            if (best_num == -1 || st.st_mtime > best_mtime)
+            {
+                best_mtime = st.st_mtime;
+                best_num = i;
+            }
+        }
+    }
 
-    } while (0);
-
-    LZ_DEBUG_LOG("Find latest log number: %d (date=%s)", max_num, date_prefix);
-
-    return ret;
+    *out_file_num = best_num;
+    LZ_DEBUG_LOG("Latest log by mtime: num=%d (date=%s)", best_num, date_prefix);
+    return LZ_LOG_SUCCESS;
 }
 
 /**
@@ -662,37 +659,59 @@ lz_log_error_t lz_logger_open(const char *log_dir,
 
         LZ_DEBUG_LOG("Current date: %s", date_str);
 
-        // 查找今日最新的日志文件编号
-        int max_num = -1;
-        ret = find_latest_log_number(log_dir, date_str, &max_num);
+        // 查找今日最近写入的日志文件（按 mtime，循环缓冲区下编号最大 ≠ 最新）
+        int file_num = -1;
+        ret = find_latest_log_file_by_mtime(log_dir, date_str, &file_num);
         if (ret != LZ_LOG_SUCCESS)
         {
-            LZ_DEBUG_LOG("Failed to find latest log number: %d", ret);
+            LZ_DEBUG_LOG("Failed to find latest log file: %d", ret);
             break;
         }
 
-        LZ_DEBUG_LOG("Found max log number: %d", max_num);
+        LZ_DEBUG_LOG("Found latest log file num (by mtime): %d", file_num);
 
         // 尝试打开已存在的文件或创建新文件
-        int file_num = (max_num >= 0) ? max_num : 0;
         uint32_t used_size = 0;
-        if (max_num >= 0)
+        if (file_num >= 0)
         {
-            // 尝试打开已存在的文件
+            // 尝试打开最近写入的文件
             build_log_file_path(log_dir, date_str, file_num,
                                 ctx->current_file_path, sizeof(ctx->current_file_path));
 
             ret = open_existing_file(ctx->current_file_path, &fd, &used_size, NULL);
 
-            // 如果文件已满，创建新文件
-            if (ret == LZ_LOG_SUCCESS &&
-                used_size >= ctx->max_file_size - LZ_LOG_FOOTER_SIZE)
+            if (ret != LZ_LOG_SUCCESS)
+            {
+                // 打开失败：初始化失败，今日不写日志（原有行为，偶尔丢日志可接受）
+                break;
+            }
+
+            // 如果文件已满，切换到下一个循环槽位（与 switch_to_new_file 保持一致）
+            if (used_size >= ctx->max_file_size - LZ_LOG_FOOTER_SIZE)
             {
                 close(fd);
                 fd = -1;
-                file_num++;
+
+                // 循环取下一槽位，绝不超出 [0, MAX_DAILY_FILES)
+                int next_num = (file_num + 1) % LZ_LOG_MAX_DAILY_FILES;
+                char next_path[768];
+                build_log_file_path(log_dir, date_str, next_num,
+                                    next_path, sizeof(next_path));
+
+                // 删除即将占用的旧槽位（最旧文件），与 switch_to_new_file 逻辑相同
+                if (unlink(next_path) == 0)
+                {
+                    LZ_DEBUG_LOG("Deleted old log slot at open: %s", next_path);
+                }
+
+                file_num = next_num;
                 ret = LZ_LOG_ERROR_FILE_NOT_FOUND; // 标记需要创建新文件
             }
+        }
+        else
+        {
+            // 今天没有任何日志文件，从 0 号槽开始
+            file_num = 0;
         }
 
         // 如果需要创建新文件
