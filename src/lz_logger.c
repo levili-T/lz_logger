@@ -765,7 +765,7 @@ lz_log_error_t lz_logger_open(const char *log_dir,
                 if (lz_crypto_generate_salt(temp_salt) != 0)
                 {
                     LZ_DEBUG_LOG("Failed to generate salt");
-                    ret = LZ_LOG_ERROR_FILE_CREATE;
+                    ret = LZ_LOG_ERROR_ENCRYPT;
                     break;
                 }
                 memcpy(ctx->crypto_ctx.salt_ptr, temp_salt, LZ_LOG_SALT_SIZE);
@@ -777,7 +777,7 @@ lz_log_error_t lz_logger_open(const char *log_dir,
             if (lz_crypto_init(&ctx->crypto_ctx, ctx->encrypt_key, ctx->crypto_ctx.salt_ptr) != 0)
             {
                 LZ_DEBUG_LOG("Failed to initialize encryption");
-                ret = LZ_LOG_ERROR_FILE_CREATE;
+                ret = LZ_LOG_ERROR_ENCRYPT;
                 break;
             }
 
