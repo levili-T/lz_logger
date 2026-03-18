@@ -100,6 +100,8 @@ typedef struct lz_logger_context_t
 
     atomic_bool is_closed; // 是否已关闭
 
+    int current_file_num; // 当前日志文件编号（循环缓冲区索引）
+
     lz_crypto_context_t crypto_ctx; // 加密上下文
 } lz_logger_context_t;
 
@@ -773,8 +775,10 @@ lz_log_error_t lz_logger_open(const char *log_dir,
             msync(mmap_base, file_size, MS_SYNC);
         }
 
-        LZ_DEBUG_LOG("Logger opened successfully: file=%s, offset=%u",
-                     ctx->current_file_path, used_size);
+        ctx->current_file_num = file_num;
+
+        LZ_DEBUG_LOG("Logger opened successfully: file=%s, num=%d, offset=%u",
+                     ctx->current_file_path, file_num, used_size);
 
         *out_handle = ctx;
         ret = LZ_LOG_SUCCESS;
@@ -952,42 +956,37 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx)
         char date_str[16];
         get_current_date_string(date_str, sizeof(date_str));
 
-        // 查找今日最新的日志文件编号
-        int max_num = -1;
-        ret = find_latest_log_number(ctx->log_dir, date_str, &max_num);
-        if (ret != LZ_LOG_SUCCESS)
+        // 通过对比当前文件名的日期前缀判断是否跨天
+        // current_file_path 格式: log_dir/YYYY-MM-DD-N.log
+        const char *cur_filename = strrchr(ctx->current_file_path, PATH_SEPARATOR);
+        cur_filename = cur_filename ? cur_filename + 1 : ctx->current_file_path;
+
+        int new_file_num;
+        if (strncmp(cur_filename, date_str, strlen(date_str)) == 0)
         {
-            LZ_DEBUG_LOG("Failed to find latest log number during switch");
-            break;
+            // 同一天：循环缓冲区，取下一个槽位
+            new_file_num = (ctx->current_file_num + 1) % LZ_LOG_MAX_DAILY_FILES;
         }
-
-        // 创建新文件（编号 +1）
-        int new_file_num = (max_num >= 0) ? (max_num + 1) : 0;
-
-        // 如果达到最大文件数量限制，删除0号文件并重用编号
-        if (new_file_num >= LZ_LOG_MAX_DAILY_FILES)
+        else
         {
-            char file_to_delete[768];
-            build_log_file_path(ctx->log_dir, date_str, 0,
-                                file_to_delete, sizeof(file_to_delete));
-
-            if (unlink(file_to_delete) == 0)
-            {
-                LZ_DEBUG_LOG("Deleted oldest log file: %s", file_to_delete);
-            }
-            else
-            {
-                LZ_DEBUG_LOG("Failed to delete oldest log file: %s (errno=%d)",
-                             file_to_delete, errno);
-            }
-
-            // 重用0号文件编号
+            // 新的一天：从 0 号开始
             new_file_num = 0;
         }
 
         char new_file_path[768];
         build_log_file_path(ctx->log_dir, date_str, new_file_num,
                             new_file_path, sizeof(new_file_path));
+
+        // 删除即将占用的槽位（循环覆盖，确保删除的是最旧文件）
+        // 文件不存在时 unlink 返回 ENOENT，此处静默忽略（首次使用该槽位时正常）
+        if (unlink(new_file_path) == 0)
+        {
+            LZ_DEBUG_LOG("Deleted old log file for rotation: %s", new_file_path);
+        }
+        else
+        {
+            LZ_DEBUG_LOG("Slot %d not yet used (errno=%d)", new_file_num, errno);
+        }
 
         ret = create_and_extend_file(new_file_path, ctx->max_file_size, &new_fd, NULL);
         if (ret != LZ_LOG_SUCCESS)
@@ -1032,8 +1031,9 @@ static lz_log_error_t switch_to_new_file(lz_logger_context_t *ctx)
         // 先替换指针，配合延迟 munmap，完美解决一致性问题
         atomic_store(&ctx->cur_offset_ptr, new_offset_ptr);
 
-        // 更新当前文件路径
+        // 更新当前文件路径和编号
         strncpy(ctx->current_file_path, new_file_path, sizeof(ctx->current_file_path) - 1);
+        ctx->current_file_num = new_file_num;
 
         LZ_DEBUG_LOG("Pointer switch completed, storing old offset_ptr for deferred cleanup");
 
